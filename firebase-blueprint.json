@@ -1,0 +1,609 @@
+{
+  "entities": {
+    "StaffMember": {
+      "title": "StaffMember",
+      "description": "Authorized pharmacy administrative staff member and role assignment.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Firebase Auth UID of the staff member." },
+        "email": { "type": "string", "format": "email", "maxLength": 254, "description": "Verified staff email address." },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120, "description": "Full name of staff member." },
+        "role": {
+          "type": "string",
+          "enum": ["super_admin", "store_admin", "inventory_manager", "order_manager", "customer_support", "analyst"],
+          "description": "Assigned RBAC role."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "suspended"],
+          "description": "Employment and access status."
+        },
+        "department": { "type": "string", "maxLength": 80, "description": "Assigned pharmacy department." },
+        "licenseNumber": { "type": "string", "maxLength": 64, "description": "Bangladesh Pharmacy Council registration number for clinical reviewers." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared pharmacy store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of staff UIDs authorized for list queries." },
+        "createdBy": { "type": "string", "maxLength": 128, "description": "UID of the administrator who provisioned this staff account." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": ["uid", "email", "displayName", "role", "status", "department", "licenseNumber", "storeId", "authorizedStaffUids", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Shared storefront and admin product category or subcategory.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 100, "description": "English category name." },
+        "nameBn": { "type": "string", "maxLength": 120, "description": "Bengali category display label." },
+        "slug": { "type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[a-z0-9\\-]+$", "description": "URL-safe stable identifier." },
+        "description": { "type": "string", "maxLength": 500, "description": "Category overview." },
+        "iconName": { "type": "string", "maxLength": 40, "description": "Healthcare icon key." },
+        "imageUrl": { "type": "string", "maxLength": 500, "description": "Optional category icon or banner URL." },
+        "parentCategoryId": { "type": "string", "maxLength": 128, "description": "Parent category ID or empty string if top-level." },
+        "displayOrder": { "type": "number", "description": "Numeric sort priority on storefront." },
+        "publicationStatus": { "type": "string", "enum": ["published", "hidden"], "description": "Visibility in Customer Panel." },
+        "activeProductCount": { "type": "number", "description": "Count of active assigned products to prevent unsafe deletion." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of staff UIDs authorized for list queries." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": ["name", "nameBn", "slug", "description", "iconName", "imageUrl", "parentCategoryId", "displayOrder", "publicationStatus", "activeProductCount", "storeId", "authorizedStaffUids", "createdAt", "updatedAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Publicly compatible pharmacy product catalog record (internal batch costs isolated in productBatches).",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 160, "description": "Commercial product name." },
+        "slug": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[a-z0-9\\-]+$", "description": "URL-friendly slug." },
+        "genericName": { "type": "string", "maxLength": 160, "description": "Verified generic name where applicable." },
+        "manufacturer": { "type": "string", "minLength": 1, "maxLength": 120, "description": "Brand or pharmaceutical company." },
+        "categoryId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Assigned category ID." },
+        "categoryName": { "type": "string", "minLength": 1, "maxLength": 100, "description": "Denormalized category label for storefront display." },
+        "subcategory": { "type": "string", "maxLength": 100, "description": "Subcategory name." },
+        "description": { "type": "string", "maxLength": 2000, "description": "Verified product description." },
+        "images": { "type": "array", "description": "Bounded gallery of up to 6 verified product image URLs." },
+        "unitSize": { "type": "string", "minLength": 1, "maxLength": 80, "description": "Package size (e.g., 30 tablets, 100ml)." },
+        "sellingPrice": { "type": "number", "description": "Authoritative selling price in BDT." },
+        "previousPrice": { "type": "number", "description": "Previous price in BDT if discounted, else 0." },
+        "stockQuantity": { "type": "number", "description": "Current sellable non-expired stock quantity." },
+        "lowStockThreshold": { "type": "number", "description": "Low-stock alert threshold." },
+        "sku": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Internal SKU code." },
+        "availabilityStatus": {
+          "type": "string",
+          "enum": ["in_stock", "low_stock", "out_of_stock", "expired_restricted"],
+          "description": "Computed stock availability state."
+        },
+        "prescriptionType": {
+          "type": "string",
+          "enum": ["otc", "prescription_required", "pharmacist_verified"],
+          "description": "Regulatory prescription requirement classification."
+        },
+        "usageInstructions": { "type": "string", "maxLength": 1000, "description": "Verified leaflet usage instructions." },
+        "storageInstructions": { "type": "string", "maxLength": 500, "description": "Verified storage temperature and handling instructions." },
+        "nearestExpiryDate": { "type": "string", "maxLength": 32, "description": "ISO date YYYY-MM-DD of earliest active batch expiry." },
+        "publicationStatus": {
+          "type": "string",
+          "enum": ["published", "draft", "archived"],
+          "description": "Storefront publication visibility."
+        },
+        "featured": { "type": "boolean", "description": "Whether featured on homepage." },
+        "popular": { "type": "boolean", "description": "Whether displayed in popular products section." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of staff UIDs authorized for list queries." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": [
+        "name", "slug", "genericName", "manufacturer", "categoryId", "categoryName", "subcategory",
+        "description", "images", "unitSize", "sellingPrice", "previousPrice", "stockQuantity",
+        "lowStockThreshold", "sku", "availabilityStatus", "prescriptionType", "usageInstructions",
+        "storageInstructions", "nearestExpiryDate", "publicationStatus", "featured", "popular",
+        "storeId", "authorizedStaffUids", "createdAt", "updatedAt"
+      ]
+    },
+    "ProductBatch": {
+      "title": "ProductBatch",
+      "description": "Internal pharmacy inventory lot, supplier, cost price, and expiry record (restricted from public storefront).",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Referenced product ID." },
+        "productName": { "type": "string", "minLength": 1, "maxLength": 160, "description": "Product name snapshot." },
+        "sku": { "type": "string", "minLength": 1, "maxLength": 64, "description": "Product SKU." },
+        "batchNumber": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Manufacturer batch or lot number." },
+        "supplierName": { "type": "string", "minLength": 1, "maxLength": 120, "description": "Authorized pharmaceutical distributor or manufacturer." },
+        "supplierContact": { "type": "string", "maxLength": 120, "description": "Distributor contact or invoice ref." },
+        "unitCostPrice": { "type": "number", "description": "Confidential wholesale unit cost in BDT." },
+        "quantityReceived": { "type": "number", "description": "Initial batch quantity received." },
+        "quantityRemaining": { "type": "number", "description": "Remaining units in this batch." },
+        "manufacturingDate": { "type": "string", "maxLength": 32, "description": "Manufacturing date YYYY-MM-DD." },
+        "expiryDate": { "type": "string", "minLength": 10, "maxLength": 32, "description": "Mandatory batch expiry date YYYY-MM-DD." },
+        "status": {
+          "type": "string",
+          "enum": ["active", "near_expiry", "expired_quarantined", "depleted"],
+          "description": "Batch lifecycle and safety restriction status."
+        },
+        "notes": { "type": "string", "maxLength": 500, "description": "Batch inspection notes." },
+        "recordedByUid": { "type": "string", "maxLength": 128, "description": "Staff UID who logged the batch." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of staff UIDs authorized for list queries." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": [
+        "productId", "productName", "sku", "batchNumber", "supplierName", "supplierContact",
+        "unitCostPrice", "quantityReceived", "quantityRemaining", "manufacturingDate", "expiryDate",
+        "status", "notes", "recordedByUid", "storeId", "authorizedStaffUids", "createdAt", "updatedAt"
+      ]
+    },
+    "InventoryMovement": {
+      "title": "InventoryMovement",
+      "description": "Immutable audit ledger of stock adjustments, incoming batches, order reservations, and expiry quarantines.",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Target product ID." },
+        "productName": { "type": "string", "minLength": 1, "maxLength": 160, "description": "Product name." },
+        "sku": { "type": "string", "minLength": 1, "maxLength": 64, "description": "Product SKU." },
+        "batchNumber": { "type": "string", "maxLength": 64, "description": "Associated batch or lot number." },
+        "movementType": {
+          "type": "string",
+          "enum": ["stock_in", "adjustment_add", "adjustment_deduct", "order_reserved", "order_restocked", "expired_quarantine"],
+          "description": "Type of stock movement."
+        },
+        "quantityDelta": { "type": "number", "description": "Signed quantity change." },
+        "previousStock": { "type": "number", "description": "Stock quantity prior to movement." },
+        "newStock": { "type": "number", "description": "Resulting stock quantity atomically verified on Product." },
+        "reason": { "type": "string", "minLength": 3, "maxLength": 400, "description": "Mandatory audit reason." },
+        "performedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Authenticated actor UID." },
+        "performedByEmail": { "type": "string", "minLength": 3, "maxLength": 254, "description": "Authenticated actor email." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of staff UIDs authorized for list queries." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." }
+      },
+      "required": [
+        "productId", "productName", "sku", "batchNumber", "movementType", "quantityDelta",
+        "previousStock", "newStock", "reason", "performedByUid", "performedByEmail",
+        "storeId", "authorizedStaffUids", "createdAt"
+      ]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Non-PII customer account profile shared between Customer Panel and Admin Panel.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Customer Firebase Auth UID." },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120, "description": "Customer display name." },
+        "accountStatus": {
+          "type": "string",
+          "enum": ["active", "suspended", "deletion_requested"],
+          "description": "Customer storefront account standing."
+        },
+        "orderCount": { "type": "number", "description": "Verified order count." },
+        "totalSpentBdt": { "type": "number", "description": "Cumulative verified BDT spend." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of staff UIDs authorized for list queries." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Registration server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update server timestamp." }
+      },
+      "required": ["uid", "displayName", "accountStatus", "orderCount", "totalSpentBdt", "storeId", "authorizedStaffUids", "createdAt", "updatedAt"]
+    },
+    "UserPrivateProfile": {
+      "title": "UserPrivateProfile",
+      "description": "Isolated customer PII document stored under /users/{userId}/privateProfile/pii.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Owner customer UID." },
+        "email": { "type": "string", "format": "email", "maxLength": 254, "description": "Customer email address." },
+        "phone": { "type": "string", "maxLength": 32, "description": "Bangladesh mobile number." },
+        "deliveryAddress": { "type": "string", "maxLength": 400, "description": "Street address for pharmacy delivery." },
+        "city": { "type": "string", "maxLength": 80, "description": "District or city (e.g., Dhaka)." },
+        "deliveryZone": { "type": "string", "maxLength": 80, "description": "Assigned delivery zone." },
+        "deletionReason": { "type": "string", "maxLength": 300, "description": "Optional customer-stated reason for account deletion request." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of PII-permitted staff UIDs." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Update server timestamp." }
+      },
+      "required": ["uid", "email", "phone", "deliveryAddress", "city", "deliveryZone", "deletionReason", "storeId", "authorizedStaffUids", "createdAt", "updatedAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Shared pharmacy e-commerce order header with payment, prescription gate, and delivery tracking.",
+      "type": "object",
+      "properties": {
+        "orderNumber": { "type": "string", "minLength": 4, "maxLength": 40, "pattern": "^[A-Z0-9\\-]+$", "description": "Human-readable order number." },
+        "customerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Ordering customer UID." },
+        "customerName": { "type": "string", "minLength": 1, "maxLength": 120, "description": "Recipient name." },
+        "customerPhone": { "type": "string", "minLength": 5, "maxLength": 32, "description": "Delivery contact phone." },
+        "shippingAddress": { "type": "string", "minLength": 5, "maxLength": 400, "description": "Delivery destination snapshot." },
+        "deliveryZone": { "type": "string", "minLength": 1, "maxLength": 80, "description": "Delivery zone name." },
+        "deliveryInstructions": { "type": "string", "maxLength": 300, "description": "Customer delivery instructions." },
+        "itemCount": { "type": "number", "description": "Number of distinct line items in subcollection." },
+        "itemsSummary": { "type": "string", "minLength": 1, "maxLength": 300, "description": "Compact summary of items for table display." },
+        "subtotalBdt": { "type": "number", "description": "Authoritative merchandise subtotal in BDT." },
+        "discountBdt": { "type": "number", "description": "Verified coupon discount in BDT." },
+        "couponCode": { "type": "string", "maxLength": 40, "description": "Applied coupon code or empty." },
+        "deliveryFeeBdt": { "type": "number", "description": "Delivery charge in BDT." },
+        "totalAmountBdt": { "type": "number", "description": "Final payable order total in BDT." },
+        "paymentMethod": {
+          "type": "string",
+          "enum": ["cod", "bkash", "nagad"],
+          "description": "Selected payment method."
+        },
+        "paymentStatus": {
+          "type": "string",
+          "enum": ["unpaid", "pending_verification", "verified_paid", "refund_pending", "refunded", "failed"],
+          "description": "Server-verified payment status."
+        },
+        "transactionReference": { "type": "string", "maxLength": 100, "description": "Gateway transaction reference (never auto-trusted from client)." },
+        "paymentVerifiedAt": { "type": "string", "maxLength": 40, "description": "ISO timestamp of trusted payment verification." },
+        "requiresPrescription": { "type": "boolean", "description": "True if any line item requires prescription review." },
+        "prescriptionReviewId": { "type": "string", "maxLength": 128, "description": "Linked prescriptionReviews document ID." },
+        "prescriptionReviewStatus": {
+          "type": "string",
+          "enum": ["not_required", "pending_review", "approved", "rejected", "more_info_requested"],
+          "description": "Current clinical review gate state."
+        },
+        "orderStatus": {
+          "type": "string",
+          "enum": [
+            "pending", "awaiting_review", "confirmed", "processing",
+            "ready_for_dispatch", "shipped", "delivered", "cancelled",
+            "refund_pending", "refunded"
+          ],
+          "description": "Current workflow order status."
+        },
+        "courierName": { "type": "string", "maxLength": 80, "description": "Assigned courier partner." },
+        "trackingReference": { "type": "string", "maxLength": 100, "description": "Shipment or rider tracking ID." },
+        "cancellationReason": { "type": "string", "maxLength": 300, "description": "Recorded policy reason if cancelled." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of staff UIDs authorized for list queries." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Order placement server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Order update server timestamp." }
+      },
+      "required": [
+        "orderNumber", "customerId", "customerName", "customerPhone", "shippingAddress",
+        "deliveryZone", "deliveryInstructions", "itemCount", "itemsSummary", "subtotalBdt",
+        "discountBdt", "couponCode", "deliveryFeeBdt", "totalAmountBdt", "paymentMethod",
+        "paymentStatus", "transactionReference", "paymentVerifiedAt", "requiresPrescription",
+        "prescriptionReviewId", "prescriptionReviewStatus", "orderStatus", "courierName",
+        "trackingReference", "cancellationReason", "storeId", "authorizedStaffUids",
+        "createdAt", "updatedAt"
+      ]
+    },
+    "OrderItem": {
+      "title": "OrderItem",
+      "description": "Historical product snapshot stored in /orders/{orderId}/items/{itemId}.",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Parent order ID." },
+        "productId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Catalog product ID." },
+        "productName": { "type": "string", "minLength": 1, "maxLength": 160, "description": "Snapshot of product name at purchase." },
+        "genericName": { "type": "string", "maxLength": 160, "description": "Snapshot of generic name." },
+        "manufacturer": { "type": "string", "maxLength": 120, "description": "Snapshot of manufacturer." },
+        "unitSize": { "type": "string", "maxLength": 80, "description": "Snapshot of package size." },
+        "sku": { "type": "string", "maxLength": 64, "description": "Snapshot of SKU." },
+        "batchNumber": { "type": "string", "maxLength": 64, "description": "Allocated batch number." },
+        "unitPriceBdt": { "type": "number", "description": "Snapshot of unit selling price in BDT." },
+        "quantity": { "type": "number", "description": "Purchased quantity." },
+        "lineTotalBdt": { "type": "number", "description": "Line total in BDT." },
+        "prescriptionRequired": { "type": "boolean", "description": "Whether item required prescription verification." },
+        "customerId": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Order owner customer UID." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of staff UIDs authorized for list queries." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." }
+      },
+      "required": [
+        "orderId", "productId", "productName", "genericName", "manufacturer", "unitSize",
+        "sku", "batchNumber", "unitPriceBdt", "quantity", "lineTotalBdt", "prescriptionRequired",
+        "customerId", "storeId", "authorizedStaffUids", "createdAt"
+      ]
+    },
+    "OrderStatusHistory": {
+      "title": "OrderStatusHistory",
+      "description": "Immutable timestamped status transition record in /orders/{orderId}/statusHistory/{historyId}.",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Parent order ID." },
+        "fromStatus": { "type": "string", "maxLength": 40, "description": "Previous status." },
+        "toStatus": { "type": "string", "minLength": 1, "maxLength": 40, "description": "New order status." },
+        "note": { "type": "string", "minLength": 1, "maxLength": 400, "description": "Transition note or shipment ref." },
+        "changedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Actor UID." },
+        "changedByName": { "type": "string", "minLength": 1, "maxLength": 120, "description": "Actor display name." },
+        "changedByRole": { "type": "string", "minLength": 1, "maxLength": 40, "description": "Actor role." },
+        "customerId": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Order owner customer UID." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of staff UIDs authorized for list queries." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp." }
+      },
+      "required": [
+        "orderId", "fromStatus", "toStatus", "note", "changedByUid", "changedByName",
+        "changedByRole", "customerId", "storeId", "authorizedStaffUids", "createdAt"
+      ]
+    },
+    "PrescriptionReview": {
+      "title": "PrescriptionReview",
+      "description": "Protected clinical prescription verification record restricted to customer owner and authorized pharmacy reviewers.",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Associated order ID." },
+        "orderNumber": { "type": "string", "minLength": 4, "maxLength": 40, "description": "Associated order number." },
+        "customerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Submitting customer UID." },
+        "customerName": { "type": "string", "minLength": 1, "maxLength": 120, "description": "Patient / customer name." },
+        "medicineSummary": { "type": "string", "minLength": 1, "maxLength": 300, "description": "Prescription-classified items requiring review." },
+        "documentUrl": { "type": "string", "minLength": 5, "maxLength": 600, "description": "Private Firebase Storage path or signed preview reference." },
+        "documentMimeType": { "type": "string", "maxLength": 64, "description": "Uploaded file MIME type (application/pdf, image/jpeg, image/png)." },
+        "prescriberName": { "type": "string", "minLength": 2, "maxLength": 120, "description": "BMDC-registered prescribing physician name." },
+        "clinicOrHospital": { "type": "string", "maxLength": 160, "description": "Hospital or chamber name." },
+        "prescriptionIssueDate": { "type": "string", "minLength": 10, "maxLength": 32, "description": "Issue date YYYY-MM-DD." },
+        "reviewStatus": {
+          "type": "string",
+          "enum": ["pending_review", "approved", "rejected", "more_info_requested"],
+          "description": "Clinical verification decision."
+        },
+        "reviewerUid": { "type": "string", "maxLength": 128, "description": "UID of qualified reviewer." },
+        "reviewerName": { "type": "string", "maxLength": 120, "description": "Name of qualified reviewer." },
+        "reviewerLicense": { "type": "string", "maxLength": 64, "description": "Reviewer Pharmacy Council registration ID." },
+        "reviewNotes": { "type": "string", "maxLength": 600, "description": "Clinical verification notes or patient follow-up request." },
+        "reviewedAt": { "type": "string", "maxLength": 40, "description": "ISO review timestamp." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of authorized reviewer UIDs." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Submission server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Review update server timestamp." }
+      },
+      "required": [
+        "orderId", "orderNumber", "customerId", "customerName", "medicineSummary",
+        "documentUrl", "documentMimeType", "prescriberName", "clinicOrHospital",
+        "prescriptionIssueDate", "reviewStatus", "reviewerUid", "reviewerName",
+        "reviewerLicense", "reviewNotes", "reviewedAt", "storeId", "authorizedStaffUids",
+        "createdAt", "updatedAt"
+      ]
+    },
+    "Coupon": {
+      "title": "Coupon",
+      "description": "Promotional discount code validated on trusted backend.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "minLength": 3, "maxLength": 32, "pattern": "^[A-Z0-9_\\-]+$", "description": "Uppercase promo code." },
+        "description": { "type": "string", "maxLength": 240, "description": "Promotion terms." },
+        "discountType": { "type": "string", "enum": ["percentage", "fixed_bdt"], "description": "Calculation mode." },
+        "discountValue": { "type": "number", "description": "Percentage (1-90) or fixed BDT amount." },
+        "minOrderAmountBdt": { "type": "number", "description": "Minimum cart subtotal in BDT." },
+        "maxDiscountBdt": { "type": "number", "description": "Maximum discount cap in BDT." },
+        "startDate": { "type": "string", "minLength": 10, "maxLength": 32, "description": "Start date YYYY-MM-DD." },
+        "endDate": { "type": "string", "minLength": 10, "maxLength": 32, "description": "End date YYYY-MM-DD." },
+        "usageLimit": { "type": "number", "description": "Maximum redemptions permitted." },
+        "usedCount": { "type": "number", "description": "Current verified redemption count." },
+        "applicableCategory": { "type": "string", "maxLength": 100, "description": "Category slug restriction or 'all'." },
+        "status": { "type": "string", "enum": ["active", "inactive"], "description": "Coupon active toggle." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of staff UIDs authorized for list queries." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": [
+        "code", "description", "discountType", "discountValue", "minOrderAmountBdt",
+        "maxDiscountBdt", "startDate", "endDate", "usageLimit", "usedCount",
+        "applicableCategory", "status", "storeId", "authorizedStaffUids", "createdAt", "updatedAt"
+      ]
+    },
+    "DeliveryZone": {
+      "title": "DeliveryZone",
+      "description": "Configurable Bangladesh pharmacy delivery zone, fee, and SLA.",
+      "type": "object",
+      "properties": {
+        "zoneName": { "type": "string", "minLength": 2, "maxLength": 80, "description": "Zone name (e.g., Dhaka Metro Inside)." },
+        "coverageAreas": { "type": "string", "minLength": 2, "maxLength": 400, "description": "Covered thanas/districts." },
+        "deliveryFeeBdt": { "type": "number", "description": "Standard fee in BDT." },
+        "freeDeliveryMinOrderBdt": { "type": "number", "description": "Minimum order in BDT for free shipping (0 if disabled)." },
+        "estimatedDeliveryText": { "type": "string", "minLength": 2, "maxLength": 80, "description": "SLA window (e.g., 1-2 Days Inside Dhaka)." },
+        "courierPartner": { "type": "string", "maxLength": 80, "description": "Default logistics provider." },
+        "instructions": { "type": "string", "maxLength": 300, "description": "Cold-chain or fragile handling notes." },
+        "status": { "type": "string", "enum": ["active", "inactive"], "description": "Zone availability." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of staff UIDs authorized for list queries." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": [
+        "zoneName", "coverageAreas", "deliveryFeeBdt", "freeDeliveryMinOrderBdt",
+        "estimatedDeliveryText", "courierPartner", "instructions", "status",
+        "storeId", "authorizedStaffUids", "createdAt", "updatedAt"
+      ]
+    },
+    "SiteSettings": {
+      "title": "SiteSettings",
+      "description": "Customer-facing storefront CMS configuration shared with the Customer Panel.",
+      "type": "object",
+      "properties": {
+        "siteName": { "type": "string", "minLength": 2, "maxLength": 120, "description": "Brand title." },
+        "tagline": { "type": "string", "maxLength": 160, "description": "English brand subtitle." },
+        "taglineBn": { "type": "string", "maxLength": 160, "description": "Bengali brand subtitle." },
+        "logoUrl": { "type": "string", "maxLength": 500, "description": "Validated logo URL." },
+        "faviconUrl": { "type": "string", "maxLength": 500, "description": "Validated favicon URL." },
+        "heroTitle": { "type": "string", "minLength": 2, "maxLength": 160, "description": "Homepage hero headline." },
+        "heroSubtitle": { "type": "string", "maxLength": 400, "description": "Homepage hero subtext." },
+        "heroBannerUrl": { "type": "string", "maxLength": 500, "description": "Homepage hero banner image URL." },
+        "heroCtaText": { "type": "string", "maxLength": 60, "description": "Hero button label." },
+        "promoBannerText": { "type": "string", "maxLength": 240, "description": "Top announcement / promotional banner text." },
+        "featuredCategorySlugs": { "type": "array", "description": "Bounded list (<=8) of featured category slugs." },
+        "homepageSectionOrder": { "type": "array", "description": "Bounded list (<=8) defining storefront section sequence." },
+        "navigationLinks": { "type": "array", "description": "Bounded list (<=8) of Label|URL strings." },
+        "supportPhone": { "type": "string", "maxLength": 40, "description": "Customer support hotline." },
+        "supportEmail": { "type": "string", "maxLength": 254, "description": "Customer support email." },
+        "supportHours": { "type": "string", "maxLength": 80, "description": "Operating support hours." },
+        "pharmacyLicenseNo": { "type": "string", "maxLength": 80, "description": "DGDA / Trade Drug License identifier." },
+        "deliveryInfoPolicy": { "type": "string", "maxLength": 1500, "description": "Customer-facing delivery terms." },
+        "paymentInfoPolicy": { "type": "string", "maxLength": 1500, "description": "Customer-facing payment methods and verification notice." },
+        "enabledPaymentMethods": { "type": "array", "description": "Bounded list (<=5) of enabled payment gateways." },
+        "faqContent": { "type": "string", "maxLength": 2500, "description": "Frequently asked questions content." },
+        "termsAndConditions": { "type": "string", "maxLength": 3000, "description": "Storefront terms and conditions." },
+        "privacyPolicy": { "type": "string", "maxLength": 3000, "description": "Storefront privacy policy." },
+        "returnRefundPolicy": { "type": "string", "maxLength": 2500, "description": "Medicine return and refund policy." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of staff UIDs authorized for list queries." },
+        "updatedByUid": { "type": "string", "maxLength": 128, "description": "Last editor staff UID." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": [
+        "siteName", "tagline", "taglineBn", "logoUrl", "faviconUrl", "heroTitle",
+        "heroSubtitle", "heroBannerUrl", "heroCtaText", "promoBannerText",
+        "featuredCategorySlugs", "homepageSectionOrder", "navigationLinks",
+        "supportPhone", "supportEmail", "supportHours", "pharmacyLicenseNo",
+        "deliveryInfoPolicy", "paymentInfoPolicy", "enabledPaymentMethods",
+        "faqContent", "termsAndConditions", "privacyPolicy", "returnRefundPolicy",
+        "storeId", "authorizedStaffUids", "updatedByUid", "createdAt", "updatedAt"
+      ]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Customer support inquiry or account deletion workflow ticket.",
+      "type": "object",
+      "properties": {
+        "ticketNumber": { "type": "string", "minLength": 4, "maxLength": 40, "description": "Ticket reference." },
+        "customerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Customer UID." },
+        "customerName": { "type": "string", "minLength": 1, "maxLength": 120, "description": "Customer display name." },
+        "subject": { "type": "string", "minLength": 3, "maxLength": 160, "description": "Ticket subject." },
+        "category": {
+          "type": "string",
+          "enum": ["order_issue", "medicine_query", "refund_request", "account_deletion", "delivery_delay"],
+          "description": "Support classification."
+        },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"], "description": "Urgency level." },
+        "status": { "type": "string", "enum": ["open", "in_progress", "resolved", "closed"], "description": "Lifecycle status." },
+        "message": { "type": "string", "minLength": 3, "maxLength": 1500, "description": "Customer inquiry details." },
+        "staffResolutionNote": { "type": "string", "maxLength": 1500, "description": "Support agent response." },
+        "assignedToUid": { "type": "string", "maxLength": 128, "description": "Assigned support staff UID." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of staff UIDs authorized for list queries." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": [
+        "ticketNumber", "customerId", "customerName", "subject", "category",
+        "priority", "status", "message", "staffResolutionNote", "assignedToUid",
+        "storeId", "authorizedStaffUids", "createdAt", "updatedAt"
+      ]
+    },
+    "AdminAuditLog": {
+      "title": "AdminAuditLog",
+      "description": "Protected append-only audit log of sensitive administrative operations.",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "minLength": 2, "maxLength": 100, "description": "Action identifier (e.g., PRODUCT_CREATED, ROLE_UPDATED)." },
+        "module": {
+          "type": "string",
+          "enum": ["auth", "products", "categories", "inventory", "orders", "prescriptions", "customers", "payments", "cms", "coupons", "staff"],
+          "description": "Subsystem module."
+        },
+        "targetId": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Target document ID." },
+        "targetLabel": { "type": "string", "minLength": 1, "maxLength": 160, "description": "Human-readable target summary." },
+        "actorUid": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Must match request.auth.uid." },
+        "actorEmail": { "type": "string", "minLength": 3, "maxLength": 254, "description": "Verified actor email." },
+        "actorRole": { "type": "string", "minLength": 2, "maxLength": 40, "description": "Actor role at time of action." },
+        "details": { "type": "string", "minLength": 2, "maxLength": 800, "description": "Structured human-readable audit summary." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of audit-authorized staff UIDs." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Immutable server timestamp." }
+      },
+      "required": [
+        "action", "module", "targetId", "targetLabel", "actorUid", "actorEmail",
+        "actorRole", "details", "storeId", "authorizedStaffUids", "createdAt"
+      ]
+    },
+    "StaffPushDevice": {
+      "title": "StaffPushDevice",
+      "description": "Authorized pharmacy staff Web Push (FCM VAPID) device registration record.",
+      "type": "object",
+      "properties": {
+        "deviceId": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Deterministic browser device identifier." },
+        "staffUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Owner Firebase Auth UID of the authorized staff member." },
+        "staffEmail": { "type": "string", "format": "email", "maxLength": 254, "description": "Verified staff email address." },
+        "fcmToken": { "type": "string", "minLength": 16, "maxLength": 2048, "description": "Firebase Cloud Messaging Web Push registration token." },
+        "vapidKeyPrefix": { "type": "string", "minLength": 6, "maxLength": 32, "description": "Public VAPID key pair prefix used to mint the token." },
+        "userAgent": { "type": "string", "maxLength": 300, "description": "Browser platform summary." },
+        "status": { "type": "string", "enum": ["active", "disabled"], "description": "Subscription active state." },
+        "storeId": { "type": "string", "maxLength": 64, "description": "Shared store identifier." },
+        "authorizedStaffUids": { "type": "array", "description": "Bounded list of staff UIDs authorized for list queries." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": [
+        "deviceId", "staffUid", "staffEmail", "fcmToken", "vapidKeyPrefix",
+        "userAgent", "status", "storeId", "authorizedStaffUids", "createdAt", "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/staffMembers/{staffUid}": {
+      "schema": "StaffMember",
+      "description": "Authorized pharmacy staff accounts and role-based access definitions."
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Shared storefront product categories and subcategories."
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Shared storefront and admin product catalog."
+    },
+    "/productBatches/{batchId}": {
+      "schema": "ProductBatch",
+      "description": "Internal pharmacy lot, supplier, cost price, and expiry records."
+    },
+    "/inventoryMovements/{movementId}": {
+      "schema": "InventoryMovement",
+      "description": "Immutable stock movement audit history."
+    },
+    "/users/{userId}": {
+      "schema": "UserAccount",
+      "description": "Shared customer profile metadata (non-PII)."
+    },
+    "/users/{userId}/privateProfile/{profileId}": {
+      "schema": "UserPrivateProfile",
+      "description": "Isolated customer PII subcollection document."
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Customer order headers with payment, delivery, and prescription review gating."
+    },
+    "/orders/{orderId}/items/{itemId}": {
+      "schema": "OrderItem",
+      "description": "Historical product purchase snapshots for an order."
+    },
+    "/orders/{orderId}/statusHistory/{historyId}": {
+      "schema": "OrderStatusHistory",
+      "description": "Append-only timestamped order status transition history."
+    },
+    "/prescriptionReviews/{reviewId}": {
+      "schema": "PrescriptionReview",
+      "description": "Protected clinical prescription submissions and pharmacist review decisions."
+    },
+    "/coupons/{couponId}": {
+      "schema": "Coupon",
+      "description": "Promotional discount codes."
+    },
+    "/deliveryZones/{zoneId}": {
+      "schema": "DeliveryZone",
+      "description": "Delivery zones, fees, and SLA settings."
+    },
+    "/siteSettings/{settingId}": {
+      "schema": "SiteSettings",
+      "description": "Customer-facing website CMS settings, banners, and legal policies."
+    },
+    "/supportTickets/{ticketId}": {
+      "schema": "SupportTicket",
+      "description": "Customer support inquiries and account deletion requests."
+    },
+    "/adminAuditLogs/{logId}": {
+      "schema": "AdminAuditLog",
+      "description": "Immutable append-only administrative audit logs."
+    },
+    "/staffPushDevices/{deviceId}": {
+      "schema": "StaffPushDevice",
+      "description": "Authorized pharmacy staff Web Push (FCM VAPID) device subscriptions."
+    }
+  }
+}

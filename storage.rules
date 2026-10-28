@@ -1,0 +1,67 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedSuperAdmin() {
+      return isSignedIn() &&
+        request.auth.token.email in ['ahmadshorif00001@gmail.com', 'ventegksy@gmail.com'];
+    }
+
+    function isStaffWithRole(roles) {
+      return isBootstrappedSuperAdmin() || (
+        isSignedIn() &&
+        firestore.exists(/databases/(default)/documents/staffMembers/$(request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/staffMembers/$(request.auth.uid)).data.status == 'active' &&
+        firestore.get(/databases/(default)/documents/staffMembers/$(request.auth.uid)).data.role in roles
+      );
+    }
+
+    function isValidImageUpload(maxMegabytes) {
+      return request.resource != null &&
+        request.resource.size <= maxMegabytes * 1024 * 1024 &&
+        request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    function isValidPrescriptionUpload() {
+      return request.resource != null &&
+        request.resource.size <= 8 * 1024 * 1024 &&
+        (
+          request.resource.contentType.matches('image/(jpeg|png|webp)') ||
+          request.resource.contentType == 'application/pdf'
+        );
+    }
+
+    // Default deny all paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // Public catalog product & category images: readable by verified storefront/admin users, writable only by catalog staff
+    match /catalog/{categoryOrProduct}/{fileName} {
+      allow read: if isSignedIn();
+      allow create, update: if isStaffWithRole(['super_admin', 'store_admin', 'inventory_manager']) && isValidImageUpload(5);
+      allow delete: if isStaffWithRole(['super_admin', 'store_admin']);
+    }
+
+    // Brand & CMS banners: writable only by Super Admin or Store Admin
+    match /branding/{fileName} {
+      allow read: if isSignedIn();
+      allow create, update: if isStaffWithRole(['super_admin', 'store_admin']) && isValidImageUpload(5);
+      allow delete: if isStaffWithRole(['super_admin', 'store_admin']);
+    }
+
+    // Sensitive clinical prescriptions: NEVER publicly exposed.
+    // Strictly isolated to uploading customer owner and authorized clinical/admin staff.
+    match /prescriptions/{customerId}/{orderId}/{fileName} {
+      allow read: if (isSignedIn() && request.auth.uid == customerId) ||
+        isStaffWithRole(['super_admin', 'store_admin']);
+      allow create: if isSignedIn() &&
+        request.auth.uid == customerId &&
+        isValidPrescriptionUpload();
+      allow update, delete: if false;
+    }
+  }
+}

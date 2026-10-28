@@ -1,0 +1,28 @@
+{
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "{firebase-applet-config.json,firestore.rules,storage.rules}"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/runtime-firebase-config.js",
+      "destination": "/api?__api_path=runtime-firebase-config.js"
+    },
+    {
+      "source": "/firebase-messaging-sw.js",
+      "destination": "/api?__api_path=firebase-messaging-sw.js"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api?__api_path=$1"
+    },
+    {
+      "source": "/((?!assets/|api/|runtime-firebase-config\\.js|firebase-messaging-sw\\.js|favicon).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

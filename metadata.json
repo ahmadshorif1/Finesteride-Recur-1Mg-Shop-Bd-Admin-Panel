@@ -1,0 +1,6 @@
+{
+  "name": "Finesteride Recur 1Mg Shop Bd — Admin Panel",
+  "description": "Protected online pharmacy store management dashboard for products, inventory, batch/expiry tracking, prescription reviews, orders, staff RBAC, and reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

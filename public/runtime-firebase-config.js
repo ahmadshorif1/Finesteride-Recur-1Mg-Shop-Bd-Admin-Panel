@@ -1,0 +1,1 @@
+window.__FIREBASE_RUNTIME_CONFIG__ = window.__FIREBASE_RUNTIME_CONFIG__ || null;
