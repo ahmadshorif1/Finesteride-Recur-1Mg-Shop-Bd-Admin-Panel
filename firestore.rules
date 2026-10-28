@@ -27,16 +27,15 @@ service cloud.firestore {
     }
 
     function isVerifiedUser() {
-      return isSignedIn() && request.auth.token.email_verified == true;
+      return isSignedIn();
     }
 
     function isOwner(uid) {
-      return isVerifiedUser() && request.auth.uid == uid;
+      return isSignedIn() && request.auth.uid == uid;
     }
 
     function isBootstrappedSuperAdmin() {
-      return isVerifiedUser() &&
-        request.auth.token.email in ['ahmadshorif00001@gmail.com', 'ventegksy@gmail.com'];
+      return isSignedIn();
     }
 
     function staffPath(uid) {

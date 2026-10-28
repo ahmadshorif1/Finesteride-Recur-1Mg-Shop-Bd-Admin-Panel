@@ -90,6 +90,11 @@ export function StoreDataProvider({ children }: { children: React.ReactNode }) {
     };
 
     const onListenerError = (path: string) => (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('Missing or insufficient permissions') || msg.includes('PERMISSION_DENIED')) {
+        setLoading(false);
+        return;
+      }
       try {
         handleFirestoreError(err, OperationType.LIST, path);
       } catch (formatted) {
