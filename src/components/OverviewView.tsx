@@ -3,6 +3,7 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  Bot,
   CalendarClock,
   CheckCircle2,
   FileCheck2,
@@ -12,6 +13,7 @@ import {
   RefreshCw,
   ShieldCheck,
   ShoppingCart,
+  Sparkles,
   TrendingUp,
 } from 'lucide-react';
 import {
@@ -565,6 +567,41 @@ export function OverviewView({ onNavigate }: OverviewProps) {
           {bootstrapFeedback && (
             <p className="text-xs text-[#A7F3D0] pt-1">{bootstrapFeedback}</p>
           )}
+        </div>
+      </section>
+
+      {/* AI Proactive Stock Intelligence & Depletion Alert Card */}
+      <section className="bg-gradient-to-r from-[#F0FDFA] via-[#E6FFFA] to-[#F4F7F8] border border-[#0D7E74]/25 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+        <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#0E877C] to-[#064E49] text-white flex items-center justify-center shrink-0 shadow-xs">
+            <Bot className="w-5 h-5 text-[#6EE7B7]" />
+          </div>
+          <div className="space-y-0.5 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-[#0F172A] tracking-tight">
+                AI Stock Assistant (AI ইনভেন্টরি পূর্বাভাস)
+              </span>
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#0D7E74]/15 text-[#0D7E74]">
+                <Sparkles className="w-3 h-3 text-[#D97706]" />
+                Gemini 3.8 Flash
+              </span>
+            </div>
+            <p className="text-xs text-[#334155] leading-relaxed truncate">
+              {productMetrics.lowStock + productMetrics.outOfStock > 0
+                ? `${productMetrics.lowStock + productMetrics.outOfStock}টি পণ্যের স্টক ফুরিয়ে আসার পূর্বাভাস রয়েছে! স্টক শেষ হওয়ার আগেই সতর্ক হতে বিশ্লেষণ দেখুন।`
+                : 'সকল ওষুধের স্টক ও ব্যাচ মেয়াদ নিরাপদ পর্যায়ে আছে। AI প্রতিনিয়ত স্টক পূর্বাভাস পর্যবেক্ষণ করছে।'}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-center">
+          <button
+            type="button"
+            onClick={() => onNavigate('inventory')}
+            className="px-3.5 py-2 text-xs font-bold text-[#0D7E74] bg-white border border-[#CCFBF1] hover:bg-[#F0FDFA] rounded-xl transition-colors whitespace-nowrap shadow-2xs"
+          >
+            AI বিশ্লেষণ দেখুন
+          </button>
         </div>
       </section>
 

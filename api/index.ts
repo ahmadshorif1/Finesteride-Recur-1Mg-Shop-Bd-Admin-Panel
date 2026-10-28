@@ -5,6 +5,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import express, { Router } from 'express';
 import type { Express, Request, Response, NextFunction } from 'express';
+import { GoogleGenAI, Type } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -920,6 +921,205 @@ export function createApiRouter(): Router {
         piiRedacted: !canExportPii,
         rowCount: rows.length,
       });
+    }
+  );
+
+  // 7. Server-Side AI Proactive Stock & Inventory Analysis Engine (Gemini 3.8 Flash)
+  router.post(
+    '/ai/stock-analysis',
+    requireVerifiedAuth,
+    async (req: AuthenticatedRequest, res: Response) => {
+      try {
+        const { products = [], batches = [] } = req.body as {
+          products?: Array<{
+            id: string;
+            name: string;
+            genericName?: string;
+            categoryName?: string;
+            stockQuantity: number;
+            minStockThreshold: number;
+            availabilityStatus: string;
+            reorderQuantity?: number;
+          }>;
+          batches?: Array<{
+            id: string;
+            productName?: string;
+            batchNumber: string;
+            expiryDate: string;
+            quantityRemaining: number;
+            status: string;
+          }>;
+        };
+
+        const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+
+        // Perform local analytical rule calculation for fallback or complement
+        const lowStockProducts = products.filter(
+          (p) =>
+            p.stockQuantity <= (p.minStockThreshold || 10) ||
+            p.availabilityStatus === 'low_stock' ||
+            p.availabilityStatus === 'out_of_stock'
+        );
+
+        const todayIso = new Date().toISOString().slice(0, 10);
+        const nearExpiryBatches = batches.filter((b) => {
+          if (b.quantityRemaining <= 0) return false;
+          const diffDays = Math.ceil(
+            (new Date(b.expiryDate).getTime() - new Date(todayIso).getTime()) /
+              (1000 * 3600 * 24)
+          );
+          return diffDays <= 60 || b.status === 'near_expiry' || b.status === 'expired_quarantined';
+        });
+
+        if (apiKey) {
+          try {
+            const ai = new GoogleGenAI({
+              apiKey,
+              httpOptions: {
+                headers: {
+                  'User-Agent': 'aistudio-build',
+                },
+              },
+            });
+
+            const prompt = `You are an expert AI Pharmacy Inventory Manager. Analyze the following pharmacy catalog stock levels and batch expiry records. Predict which products will run out of stock soon, identify urgent reorder priorities, and provide actionable reorder guidance for the pharmacy admin in both Bengali and English.
+
+Pharmacy Stock Catalog (${products.length} SKUs):
+${JSON.stringify(products.slice(0, 35))}
+
+Batch Expiry Records (${batches.length} batches):
+${JSON.stringify(batches.slice(0, 35))}
+
+Return a structured JSON response matching the required schema.`;
+
+            const aiResponse = await ai.models.generateContent({
+              model: 'gemini-3.8-flash',
+              contents: prompt,
+              config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                  type: Type.OBJECT,
+                  properties: {
+                    summaryBn: { type: Type.STRING },
+                    summaryEn: { type: Type.STRING },
+                    overallRiskLevel: { type: Type.STRING },
+                    urgentAlerts: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          productId: { type: Type.STRING },
+                          productName: { type: Type.STRING },
+                          severity: { type: Type.STRING },
+                          alertType: { type: Type.STRING },
+                          messageBn: { type: Type.STRING },
+                          messageEn: { type: Type.STRING },
+                          suggestedReorderQuantity: { type: Type.NUMBER },
+                          runoutDaysEstimate: { type: Type.NUMBER },
+                        },
+                        required: [
+                          'productId',
+                          'productName',
+                          'severity',
+                          'alertType',
+                          'messageBn',
+                          'messageEn',
+                          'suggestedReorderQuantity',
+                        ],
+                      },
+                    },
+                    recommendationsBn: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    recommendationsEn: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  },
+                  required: [
+                    'summaryBn',
+                    'summaryEn',
+                    'overallRiskLevel',
+                    'urgentAlerts',
+                    'recommendationsBn',
+                    'recommendationsEn',
+                  ],
+                },
+              },
+            });
+
+            if (aiResponse.text) {
+              const parsed = JSON.parse(aiResponse.text);
+              res.json({
+                ...parsed,
+                aiPowered: true,
+                analyzedAt: new Date().toISOString(),
+              });
+              return;
+            }
+          } catch (geminiError) {
+            console.warn('Gemini API call warning, falling back to rule engine:', geminiError);
+          }
+        }
+
+        // Rule-based analytical fallback
+        const fallbackAlerts = lowStockProducts.map((p) => {
+          const isOut = p.stockQuantity <= 0;
+          return {
+            productId: p.id,
+            productName: p.name,
+            severity: isOut ? 'critical' : 'warning',
+            alertType: isOut ? 'out_of_stock' : 'low_stock',
+            messageBn: isOut
+              ? `"${p.name}" এর স্টক সম্পূর্ণ শেষ হয়ে গেছে! দ্রুত স্টক রি-অর্ডার করুন।`
+              : `"${p.name}" এর স্টক ফুরিয়ে আসছে (বাকি: ${p.stockQuantity} টি, ন্যূনতম সীমা: ${p.minStockThreshold || 10} টি)।`,
+            messageEn: isOut
+              ? `"${p.name}" is completely out of stock! Reorder immediately.`
+              : `"${p.name}" stock is running critically low (${p.stockQuantity} left, min threshold: ${p.minStockThreshold || 10}).`,
+            suggestedReorderQuantity: (p.reorderQuantity && p.reorderQuantity > 0) ? p.reorderQuantity : Math.max(50, (p.minStockThreshold || 10) * 3),
+            runoutDaysEstimate: isOut ? 0 : Math.max(1, Math.floor(p.stockQuantity / 2)),
+          };
+        });
+
+        const expiryAlerts = nearExpiryBatches.map((b) => ({
+          productId: b.id,
+          productName: `${b.productName || 'Medicine'} (Batch ${b.batchNumber})`,
+          severity: 'warning',
+          alertType: 'near_expiry',
+          messageBn: `ব্যাচ ${b.batchNumber} এর মেয়াদ ${b.expiryDate} তারিখে শেষ হবে (অবশিষ্ট: ${b.quantityRemaining} টি)।`,
+          messageEn: `Batch ${b.batchNumber} expires on ${b.expiryDate} (${b.quantityRemaining} units remaining).`,
+          suggestedReorderQuantity: 0,
+          runoutDaysEstimate: Math.max(0, Math.ceil((new Date(b.expiryDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24))),
+        }));
+
+        const totalAlerts = [...fallbackAlerts, ...expiryAlerts];
+        const overallRiskLevel = totalAlerts.some((a) => a.severity === 'critical')
+          ? 'high'
+          : totalAlerts.length > 0
+          ? 'medium'
+          : 'low';
+
+        res.json({
+          summaryBn: totalAlerts.length === 0
+            ? 'সকল পণ্যের স্টক ও ব্যাচ মেয়াদ নিরাপদ অবস্থায় আছে।'
+            : `${lowStockProducts.length}টি পণ্যের স্টক ফুরিয়ে আসার ঝুঁকিতে এবং ${nearExpiryBatches.length}টি ব্যাচ মেয়াদের কাছাকাছি।`,
+          summaryEn: totalAlerts.length === 0
+            ? 'All product stocks and batch expiries are within safe parameters.'
+            : `${lowStockProducts.length} product(s) low on stock and ${nearExpiryBatches.length} batch(es) near expiry.`,
+          overallRiskLevel,
+          urgentAlerts: totalAlerts,
+          recommendationsBn: [
+            'স্বল্প স্টকের ওষুধগুলো পাইকারি সরবরাহকারীর কাছ থেকে দ্রুত রি-অর্ডার করুন।',
+            'মেয়াদ ফুরিয়ে আসা ব্যাচগুলো প্রথমে বিক্রি করতে FEFO (First-Expired-First-Out) পদ্ধতি ব্যবহার করুন।',
+            'জরুরী অ্যান্টিবায়োটিক ও জীবনরক্ষাকারী ওষুধের জন্য নিয়মিত ন্যূনতম স্টক সীমা বজায় রাখুন।',
+          ],
+          recommendationsEn: [
+            'Place bulk reorders for low-stock medicines from wholesale suppliers.',
+            'Apply FEFO (First-Expired-First-Out) dispensing policy for near-expiry batches.',
+            'Maintain safe buffer stocks for essential lifesaving medications.',
+          ],
+          aiPowered: false,
+          analyzedAt: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.error('AI Stock analysis endpoint error:', err);
+        res.status(500).json({ error: 'Failed to complete AI stock analysis.' });
+      }
     }
   );
 

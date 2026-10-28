@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
   Bell,
+  Bot,
   Box,
   ChevronDown,
   FileCheck2,
@@ -19,11 +20,13 @@ import {
   Pill,
   Search,
   ShoppingBag,
+  Sparkles,
   UserCog,
   Users,
   Wallet,
   X,
 } from 'lucide-react';
+import { AiStockNotificationModal } from './components/AiStockNotificationModal';
 import { AuthGate } from './components/AuthGate';
 import { PharmacyEmblem } from './components/BrandLogo';
 import { CategoriesView } from './components/CategoriesView';
@@ -133,6 +136,7 @@ function AdminWorkspaceShell() {
   const [activeModule, setActiveModule] = useState<AdminModuleKey>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
 
   // Global Quick Search State
@@ -519,6 +523,26 @@ function AdminWorkspaceShell() {
               )}
             </div>
 
+            {/* AI Stock Alert Notification Button */}
+            <button
+              type="button"
+              onClick={() => setAiModalOpen(true)}
+              title="AI Stock Alerts (AI নোটিফিকেশন)"
+              aria-label="AI Stock Notifications"
+              className="relative px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#0E877C] to-[#064E49] hover:opacity-95 text-white text-xs font-bold flex items-center gap-1.5 transition-opacity shadow-xs shrink-0"
+            >
+              <Bot className="w-4 h-4 text-[#6EE7B7]" />
+              <span className="hidden sm:inline">
+                AI নোটিফিকেশন
+              </span>
+              <Sparkles className="w-3 h-3 text-[#FDE047]" />
+              {inventoryAlertCount > 0 && (
+                <span className="ml-1 min-w-[18px] h-[18px] px-1 rounded-md bg-[#EF4444] text-white text-[10px] font-mono tabular-nums font-bold flex items-center justify-center">
+                  {inventoryAlertCount > 99 ? '99+' : inventoryAlertCount}
+                </span>
+              )}
+            </button>
+
             {/* Functional Stock & Expiry Alert Quick-Jump */}
             <button
               type="button"
@@ -672,6 +696,12 @@ function AdminWorkspaceShell() {
           {activeModule === 'reports_qa' && <ReportsQaView />}
         </main>
       </div>
+
+      <AiStockNotificationModal
+        isOpen={aiModalOpen}
+        onClose={() => setAiModalOpen(false)}
+        onNavigate={handleSelectModule}
+      />
     </div>
   );
 }
