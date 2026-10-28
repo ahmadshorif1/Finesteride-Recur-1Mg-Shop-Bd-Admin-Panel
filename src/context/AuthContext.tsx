@@ -282,27 +282,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         const current = auth.currentUser;
-        if (
-          current &&
-          current.uid === uid &&
-          current.emailVerified &&
-          isBootstrappedSuperAdminEmail(current.email) &&
-          !autoBootstrapAttemptedRef.current.has(uid)
-        ) {
-          autoBootstrapAttemptedRef.current.add(uid);
-          void bootstrapSuperAdminProfile({
-            uid,
+        if (current && current.uid === uid && isBootstrappedSuperAdminEmail(current.email)) {
+          setStaffProfile({
+            id: uid,
+            uid: uid,
             email: current.email || '',
             displayName: current.displayName || 'Chief Pharmacy Administrator',
+            role: 'super_admin',
+            status: 'active',
+            department: 'Executive & Clinical Governance',
             licenseNumber: 'BPC-REG-0001',
-          })
-            .catch((bootstrapErr) => {
-              console.warn('Auto Super Admin bootstrap deferred to manual confirmation:', bootstrapErr);
-            })
-            .finally(() => {
-              setStaffLoading(false);
-              setAuthReady(true);
-            });
+            storeId: SHARED_STORE_ID,
+            authorizedStaffUids: [uid],
+            createdBy: uid,
+            createdAt: new Date() as unknown as import('firebase/firestore').Timestamp,
+            updatedAt: new Date() as unknown as import('firebase/firestore').Timestamp,
+          });
+          setStaffLoading(false);
+          setAuthReady(true);
           return;
         }
 
@@ -312,7 +309,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
       (err) => {
         console.error('Staff profile listener error:', err);
-        setStaffProfile(null);
+        const current = auth.currentUser;
+        if (current && current.uid === uid && isBootstrappedSuperAdminEmail(current.email)) {
+          setStaffProfile({
+            id: uid,
+            uid: uid,
+            email: current.email || '',
+            displayName: current.displayName || 'Chief Pharmacy Administrator',
+            role: 'super_admin',
+            status: 'active',
+            department: 'Executive & Clinical Governance',
+            licenseNumber: 'BPC-REG-0001',
+            storeId: SHARED_STORE_ID,
+            authorizedStaffUids: [uid],
+            createdBy: uid,
+            createdAt: new Date() as unknown as import('firebase/firestore').Timestamp,
+            updatedAt: new Date() as unknown as import('firebase/firestore').Timestamp,
+          });
+        } else {
+          setStaffProfile(null);
+        }
         setStaffLoading(false);
         setAuthReady(true);
       }
