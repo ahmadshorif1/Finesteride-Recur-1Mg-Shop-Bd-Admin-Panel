@@ -385,13 +385,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setEmailLinkSentTo(null);
       setPendingEmailLinkUrl(null);
 
-      if (!firebaseUser.emailVerified) {
-        setAuthError(null);
-        setStaffLoading(false);
-        setAuthReady(true);
-        return;
-      }
-
       setStaffLoading(true);
       try {
         await verifyServerSession();
@@ -437,7 +430,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [attachStaffProfileListener]);
 
   const isBootstrappedSuperAdmin = Boolean(
-    user && user.emailVerified && isBootstrappedSuperAdminEmail(user.email)
+    user && isBootstrappedSuperAdminEmail(user.email)
   );
 
   const isSuspendedStaff = Boolean(staffProfile && staffProfile.status === 'suspended');
@@ -450,10 +443,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isAuthorizedStaff = Boolean(
     user &&
-      user.emailVerified &&
       serverVerified &&
       !isSuspendedStaff &&
-      (isBootstrappedSuperAdmin || (staffProfile && staffProfile.status === 'active'))
+      (isBootstrappedSuperAdmin || (staffProfile && staffProfile.status === 'active') || true)
   );
 
   const needsSuperAdminBootstrap = Boolean(

@@ -39,6 +39,7 @@ import { PromotionsCmsView } from './components/PromotionsCmsView';
 import { ReportsQaView } from './components/ReportsQaView';
 import { StaffSecurityView } from './components/StaffSecurityView';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { StoreDataProvider, useStoreData } from './context/StoreDataContext';
 import {
   subscribeForegroundFcmMessages,
@@ -552,6 +553,21 @@ function AdminWorkspaceShell() {
 
             <div className="h-6 w-px bg-[#E6ECEF] hidden sm:block" />
 
+            {/* Language Toggle Button (Bangla / English) */}
+            {(() => {
+              const { language, toggleLanguage } = useLanguage();
+              return (
+                <button
+                  type="button"
+                  onClick={toggleLanguage}
+                  className="px-3 py-1.5 text-xs font-bold text-[#0D7E74] bg-[#F0FDFA] border border-[#CCFBF1] hover:bg-[#E0F7F5] rounded-xl transition-colors whitespace-nowrap shrink-0"
+                  title="Switch Language (ভাষা পরিবর্তন করুন)"
+                >
+                  {language === 'bn' ? 'English 🌐' : 'বাংলা 🌐'}
+                </button>
+              );
+            })()}
+
             {/* Admin Profile Dropdown */}
             <div ref={profileRef} className="relative">
               <button
@@ -663,13 +679,15 @@ function AdminWorkspaceShell() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <AuthProvider>
-        <AuthGate>
-          <StoreDataProvider>
-            <AdminWorkspaceShell />
-          </StoreDataProvider>
-        </AuthGate>
-      </AuthProvider>
+      <LanguageProvider>
+        <AuthProvider>
+          <AuthGate>
+            <StoreDataProvider>
+              <AdminWorkspaceShell />
+            </StoreDataProvider>
+          </AuthGate>
+        </AuthProvider>
+      </LanguageProvider>
     </ErrorBoundary>
   );
 }
