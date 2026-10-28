@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import { browserPopupRedirectResolver, getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import appletConfig from '../../firebase-applet-config.json';
@@ -114,37 +114,46 @@ export const FIRESTORE_DATABASE_ID: string = resolveFirestoreDatabaseId(
 );
 
 export const SHARED_STORE_ID = 'finesteride-recur-bd';
-export const BOOTSTRAPPED_SUPER_ADMIN_EMAIL = 'ahmadshorif00001@gmail.com';
-export const BOOTSTRAPPED_SUPER_ADMIN_EMAILS: readonly string[] = [
-  'ahmadshorif00001@gmail.com',
-  'ventegksy@gmail.com',
-];
+export const BOOTSTRAPPED_SUPER_ADMIN_EMAIL = '';
+export const BOOTSTRAPPED_SUPER_ADMIN_EMAILS: readonly string[] = [];
 
 export function isBootstrappedSuperAdminEmail(email?: string | null): boolean {
   if (!email) return false;
   const normalized = email.trim().toLowerCase();
-  if (!normalized) return false;
-  if (BOOTSTRAPPED_SUPER_ADMIN_EMAILS.includes(normalized)) return true;
-  if (
-    Array.isArray(runtimeCfg.superAdminEmails) &&
-    runtimeCfg.superAdminEmails.map((e) => e.trim().toLowerCase()).includes(normalized)
-  ) {
-    return true;
-  }
-
-  const extraEmailsRaw = (import.meta.env.VITE_SUPER_ADMIN_EMAIL || '').trim();
-  if (!extraEmailsRaw) return false;
-  const extraEmails = extraEmailsRaw
-    .split(',')
-    .map((item: string) => item.trim().toLowerCase())
-    .filter(Boolean);
-  return extraEmails.includes(normalized);
+  if (!normalized || !normalized.includes('@')) return false;
+  // Allow any entrepreneur with a valid email address to bootstrap and create an admin account.
+  return true;
 }
 
 export const app = initializeApp(resolvedFirebaseConfig);
 export const db = getFirestore(app, FIRESTORE_DATABASE_ID);
 export const auth = getAuth(app);
 export const storage = getStorage(app);
+export const popupRedirectResolver = browserPopupRedirectResolver;
+
+// Pre-warm Firebase Auth's popup/redirect helper iframe eagerly on load so
+// clicking "Sign In with Google" opens window.open synchronously within user activation
+if (typeof window !== 'undefined') {
+  try {
+    const internalResolver = popupRedirectResolver as unknown as {
+      _initialize?: (authInstance: typeof auth) => Promise<unknown>;
+    };
+    void internalResolver._initialize?.(auth)?.catch(() => {
+      // Ignored: resolver will retry on explicit auth gesture if needed
+    });
+  } catch {
+    // Safe no-op in restricted environments
+  }
+}
+
+export function isEmbeddedInIframe(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
 
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
