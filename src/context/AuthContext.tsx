@@ -468,16 +468,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const loginWithGoogle = async () => {
-    // Initiate popup synchronously on user gesture using pre-warmed resolver
-    const popupTask = signInWithPopup(auth, googleProvider, popupRedirectResolver);
     setAuthError(null);
     setPopupBlocked(false);
     try {
-      await popupTask;
+      await signInWithPopup(auth, googleProvider, popupRedirectResolver);
     } catch (err) {
       const code = (err as { code?: string })?.code || '';
-      if (code === 'auth/popup-blocked') {
-        setPopupBlocked(true);
+      if (
+        code === 'auth/popup-blocked' ||
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request'
+      ) {
+        await signInWithRedirect(auth, googleProvider, popupRedirectResolver);
+        return;
       }
       const guidance = formatFirebaseAuthError(err, 'google');
       setAuthError(guidance);

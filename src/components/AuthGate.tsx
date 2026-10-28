@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import firestoreRulesRaw from '../../firestore.rules?raw';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import { getFirebaseProjectInfo, isEmbeddedInIframe } from '../lib/firebase';
 import { PharmacyEmblem } from './BrandLogo';
 
@@ -48,6 +49,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     completeSuperAdminBootstrap,
     logoutAdmin,
   } = useAuth();
+  const { language, toggleLanguage, t } = useLanguage();
 
   const [authTab, setAuthTab] = useState<'google' | 'email'>('google');
   const [emailMode, setEmailMode] = useState<'signin' | 'setup' | 'reset'>('signin');
@@ -684,11 +686,26 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       {/* Right Authentication Form Column */}
       <div className="lg:col-span-7 flex items-center justify-center p-6 lg:p-14">
         <div className="w-full max-w-md bg-white border border-[#E6ECEF] rounded-2xl p-8 space-y-6">
-          <div className="space-y-1">
-            <h2 className="text-2xl font-bold text-[#0F172A]">Administrator Sign In</h2>
-            <p className="text-sm text-[#64748B]">
-              Sign in with your authorized pharmacy administrator account.
-            </p>
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-1">
+              <h2 className="text-2xl font-bold text-[#0F172A]">
+                {t('অ্যাডমিন সাইন ইন ও রেজিস্ট্রেশন', 'Administrator Sign In')}
+              </h2>
+              <p className="text-sm text-[#64748B]">
+                {t(
+                  'যেকোনো উদ্যোক্তা সহজেই ফার্মেসি অ্যাডমিন অ্যাকাউন্ট তৈরি ও লগইন করতে পারেন।',
+                  'Sign in or register your pharmacy administrator account instantly.'
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={toggleLanguage}
+              className="px-3 py-1.5 text-xs font-bold text-[#0D7E74] bg-[#F0FDFA] border border-[#CCFBF1] hover:bg-[#E0F7F5] rounded-xl transition-colors whitespace-nowrap shrink-0"
+              title="Switch Language / ভাষা পরিবর্তন করুন"
+            >
+              {language === 'bn' ? 'English 🌐' : 'বাংলা 🌐'}
+            </button>
           </div>
 
           {pendingEmailLinkUrl ? (
