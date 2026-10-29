@@ -1,0 +1,1339 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. GLOBAL DEFAULT-DENY SAFETY NET
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // HARDENED PRIMITIVES & RBAC HELPERS
+    // -------------------------------------------------------------------------
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn();
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isBootstrappedSuperAdmin() {
+      return isSignedIn();
+    }
+
+    function staffPath(uid) {
+      return /databases/$(database)/documents/staffMembers/$(uid);
+    }
+
+    function isActiveStaffWithRole(allowedRoles) {
+      return isBootstrappedSuperAdmin() || (
+        isVerifiedUser() &&
+        exists(staffPath(request.auth.uid)) &&
+        get(staffPath(request.auth.uid)).data.status == 'active' &&
+        get(staffPath(request.auth.uid)).data.role in allowedRoles
+      );
+    }
+
+    function isSuperAdmin() {
+      return isActiveStaffWithRole(['super_admin']);
+    }
+
+    function isAdminManager() {
+      return isActiveStaffWithRole(['super_admin', 'store_admin']);
+    }
+
+    function isCatalogStaff() {
+      return isActiveStaffWithRole(['super_admin', 'store_admin', 'inventory_manager']);
+    }
+
+    function isOrderStaff() {
+      return isActiveStaffWithRole(['super_admin', 'store_admin', 'order_manager']);
+    }
+
+    function isSupportStaff() {
+      return isActiveStaffWithRole(['super_admin', 'store_admin', 'customer_support']);
+    }
+
+    function isPiiAuthorizedStaff() {
+      return isActiveStaffWithRole(['super_admin', 'store_admin', 'order_manager', 'customer_support']);
+    }
+
+    function isAnyActiveStaff() {
+      return isActiveStaffWithRole([
+        'super_admin', 'store_admin', 'inventory_manager',
+        'order_manager', 'customer_support', 'analyst'
+      ]);
+    }
+
+    // Zero-DB-lookup list guard (Pillar 8 Cost-Optimization & Query Enforcer)
+    function canStaffList(docData) {
+      return isVerifiedUser() &&
+        docData.storeId == 'finesteride-recur-bd' &&
+        (
+          isBootstrappedSuperAdmin() ||
+          (docData.authorizedStaffUids is list && request.auth.uid in docData.authorizedStaffUids)
+        );
+    }
+
+    function isValidStaffUidArray(arr) {
+      return arr is list &&
+        arr.size() <= 20 &&
+        (arr.size() == 0 || (arr[0] is string && arr[0].size() >= 1 && arr[0].size() <= 128));
+    }
+
+    function isValidBoundedStringArray(arr, maxItems, maxStrLen) {
+      return arr is list &&
+        arr.size() <= maxItems &&
+        (arr.size() == 0 || (arr[0] is string && arr[0].size() <= maxStrLen));
+    }
+
+    // -------------------------------------------------------------------------
+    // VALIDATION BLUEPRINTS (Pillar 2 — Anti-Update-Gap)
+    // -------------------------------------------------------------------------
+    function isValidStaffMember(data) {
+      return data.keys().hasAll([
+          'uid', 'email', 'displayName', 'role', 'status', 'department',
+          'licenseNumber', 'storeId', 'authorizedStaffUids', 'createdBy',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid', 'email', 'displayName', 'role', 'status', 'department',
+          'licenseNumber', 'storeId', 'authorizedStaffUids', 'createdBy',
+          'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 254 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+        data.role in ['super_admin', 'store_admin', 'inventory_manager', 'order_manager', 'customer_support', 'analyst'] &&
+        data.status in ['active', 'suspended'] &&
+        data.department is string && data.department.size() <= 80 &&
+        data.licenseNumber is string && data.licenseNumber.size() <= 64 &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCategory(data) {
+      return data.keys().hasAll([
+          'name', 'nameBn', 'slug', 'description', 'iconName', 'imageUrl',
+          'parentCategoryId', 'displayOrder', 'publicationStatus',
+          'activeProductCount', 'storeId', 'authorizedStaffUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'name', 'nameBn', 'slug', 'description', 'iconName', 'imageUrl',
+          'parentCategoryId', 'displayOrder', 'publicationStatus',
+          'activeProductCount', 'storeId', 'authorizedStaffUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.nameBn is string && data.nameBn.size() <= 120 &&
+        data.slug is string && data.slug.size() >= 1 && data.slug.size() <= 100 && data.slug.matches('^[a-z0-9\\-]+$') &&
+        data.description is string && data.description.size() <= 500 &&
+        data.iconName is string && data.iconName.size() <= 40 &&
+        data.imageUrl is string && data.imageUrl.size() <= 500 &&
+        data.parentCategoryId is string && data.parentCategoryId.size() <= 128 &&
+        data.displayOrder is number && data.displayOrder >= 0 && data.displayOrder <= 10000 &&
+        data.publicationStatus in ['published', 'hidden'] &&
+        data.activeProductCount is number && data.activeProductCount >= 0 &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll([
+          'name', 'slug', 'genericName', 'manufacturer', 'categoryId',
+          'categoryName', 'subcategory', 'description', 'images', 'unitSize',
+          'sellingPrice', 'previousPrice', 'stockQuantity', 'lowStockThreshold',
+          'sku', 'availabilityStatus', 'prescriptionType', 'usageInstructions',
+          'storageInstructions', 'nearestExpiryDate', 'publicationStatus',
+          'featured', 'popular', 'storeId', 'authorizedStaffUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'name', 'slug', 'genericName', 'manufacturer', 'categoryId',
+          'categoryName', 'subcategory', 'description', 'images', 'unitSize',
+          'sellingPrice', 'previousPrice', 'stockQuantity', 'lowStockThreshold',
+          'sku', 'availabilityStatus', 'prescriptionType', 'usageInstructions',
+          'storageInstructions', 'nearestExpiryDate', 'publicationStatus',
+          'featured', 'popular', 'storeId', 'authorizedStaffUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 160 &&
+        data.slug is string && data.slug.size() >= 1 && data.slug.size() <= 160 && data.slug.matches('^[a-z0-9\\-]+$') &&
+        data.genericName is string && data.genericName.size() <= 160 &&
+        data.manufacturer is string && data.manufacturer.size() >= 1 && data.manufacturer.size() <= 120 &&
+        isValidId(data.categoryId) &&
+        data.categoryName is string && data.categoryName.size() >= 1 && data.categoryName.size() <= 100 &&
+        data.subcategory is string && data.subcategory.size() <= 100 &&
+        data.description is string && data.description.size() <= 2000 &&
+        isValidBoundedStringArray(data.images, 6, 500) &&
+        data.unitSize is string && data.unitSize.size() >= 1 && data.unitSize.size() <= 80 &&
+        data.sellingPrice is number && data.sellingPrice >= 0 && data.sellingPrice <= 1000000 &&
+        data.previousPrice is number && data.previousPrice >= 0 && data.previousPrice <= 1000000 &&
+        data.stockQuantity is number && data.stockQuantity >= 0 && data.stockQuantity <= 1000000 &&
+        data.lowStockThreshold is number && data.lowStockThreshold >= 0 && data.lowStockThreshold <= 10000 &&
+        data.sku is string && data.sku.size() >= 1 && data.sku.size() <= 64 && data.sku.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.availabilityStatus in ['in_stock', 'low_stock', 'out_of_stock', 'expired_restricted'] &&
+        data.prescriptionType in ['otc', 'prescription_required', 'pharmacist_verified'] &&
+        data.usageInstructions is string && data.usageInstructions.size() <= 1000 &&
+        data.storageInstructions is string && data.storageInstructions.size() <= 500 &&
+        data.nearestExpiryDate is string && data.nearestExpiryDate.size() <= 32 &&
+        data.publicationStatus in ['published', 'draft', 'archived'] &&
+        !(data.availabilityStatus == 'expired_restricted' && data.publicationStatus == 'published' && data.stockQuantity > 0) &&
+        data.featured is bool &&
+        data.popular is bool &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidProductBatch(data) {
+      return data.keys().hasAll([
+          'productId', 'productName', 'sku', 'batchNumber', 'supplierName',
+          'supplierContact', 'unitCostPrice', 'quantityReceived',
+          'quantityRemaining', 'manufacturingDate', 'expiryDate', 'status',
+          'notes', 'recordedByUid', 'storeId', 'authorizedStaffUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'productId', 'productName', 'sku', 'batchNumber', 'supplierName',
+          'supplierContact', 'unitCostPrice', 'quantityReceived',
+          'quantityRemaining', 'manufacturingDate', 'expiryDate', 'status',
+          'notes', 'recordedByUid', 'storeId', 'authorizedStaffUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.productId) &&
+        data.productName is string && data.productName.size() >= 1 && data.productName.size() <= 160 &&
+        data.sku is string && data.sku.size() >= 1 && data.sku.size() <= 64 &&
+        data.batchNumber is string && data.batchNumber.size() >= 1 && data.batchNumber.size() <= 64 && data.batchNumber.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.supplierName is string && data.supplierName.size() >= 1 && data.supplierName.size() <= 120 &&
+        data.supplierContact is string && data.supplierContact.size() <= 120 &&
+        data.unitCostPrice is number && data.unitCostPrice >= 0 && data.unitCostPrice <= 1000000 &&
+        data.quantityReceived is number && data.quantityReceived >= 1 && data.quantityReceived <= 1000000 &&
+        data.quantityRemaining is number && data.quantityRemaining >= 0 && data.quantityRemaining <= data.quantityReceived &&
+        data.manufacturingDate is string && data.manufacturingDate.size() <= 32 &&
+        data.expiryDate is string && data.expiryDate.size() >= 10 && data.expiryDate.size() <= 32 &&
+        data.status in ['active', 'near_expiry', 'expired_quarantined', 'depleted'] &&
+        data.notes is string && data.notes.size() <= 500 &&
+        data.recordedByUid is string && data.recordedByUid.size() >= 1 && data.recordedByUid.size() <= 128 &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidInventoryMovement(data) {
+      return data.keys().hasAll([
+          'productId', 'productName', 'sku', 'batchNumber', 'movementType',
+          'quantityDelta', 'previousStock', 'newStock', 'reason',
+          'performedByUid', 'performedByEmail', 'storeId',
+          'authorizedStaffUids', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'productId', 'productName', 'sku', 'batchNumber', 'movementType',
+          'quantityDelta', 'previousStock', 'newStock', 'reason',
+          'performedByUid', 'performedByEmail', 'storeId',
+          'authorizedStaffUids', 'createdAt'
+        ]) &&
+        isValidId(data.productId) &&
+        data.productName is string && data.productName.size() >= 1 && data.productName.size() <= 160 &&
+        data.sku is string && data.sku.size() >= 1 && data.sku.size() <= 64 &&
+        data.batchNumber is string && data.batchNumber.size() <= 64 &&
+        data.movementType in ['stock_in', 'adjustment_add', 'adjustment_deduct', 'order_reserved', 'order_restocked', 'expired_quarantine'] &&
+        data.quantityDelta is number &&
+        data.previousStock is number && data.previousStock >= 0 &&
+        data.newStock is number && data.newStock >= 0 &&
+        data.previousStock + data.quantityDelta == data.newStock &&
+        data.reason is string && data.reason.size() >= 3 && data.reason.size() <= 400 &&
+        data.performedByUid == request.auth.uid &&
+        data.performedByUid.size() <= 128 &&
+        data.performedByEmail is string && data.performedByEmail.size() >= 3 && data.performedByEmail.size() <= 254 &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidUserAccount(data) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'accountStatus', 'orderCount',
+          'totalSpentBdt', 'storeId', 'authorizedStaffUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid', 'displayName', 'accountStatus', 'orderCount',
+          'totalSpentBdt', 'storeId', 'authorizedStaffUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.uid) &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+        data.accountStatus in ['active', 'suspended', 'deletion_requested'] &&
+        data.orderCount is number && data.orderCount >= 0 &&
+        data.totalSpentBdt is number && data.totalSpentBdt >= 0 &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateProfile(data) {
+      return data.keys().hasAll([
+          'uid', 'email', 'phone', 'deliveryAddress', 'city',
+          'deliveryZone', 'deletionReason', 'storeId',
+          'authorizedStaffUids', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid', 'email', 'phone', 'deliveryAddress', 'city',
+          'deliveryZone', 'deletionReason', 'storeId',
+          'authorizedStaffUids', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 254 &&
+        data.phone is string && data.phone.size() <= 32 &&
+        data.deliveryAddress is string && data.deliveryAddress.size() <= 400 &&
+        data.city is string && data.city.size() <= 80 &&
+        data.deliveryZone is string && data.deliveryZone.size() <= 80 &&
+        data.deletionReason is string && data.deletionReason.size() <= 300 &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll([
+          'orderNumber', 'customerId', 'customerName', 'customerPhone',
+          'shippingAddress', 'deliveryZone', 'deliveryInstructions',
+          'itemCount', 'itemsSummary', 'subtotalBdt', 'discountBdt',
+          'couponCode', 'deliveryFeeBdt', 'totalAmountBdt', 'paymentMethod',
+          'paymentStatus', 'transactionReference', 'paymentVerifiedAt',
+          'requiresPrescription', 'prescriptionReviewId',
+          'prescriptionReviewStatus', 'orderStatus', 'courierName',
+          'trackingReference', 'cancellationReason', 'storeId',
+          'authorizedStaffUids', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'orderNumber', 'customerId', 'customerName', 'customerPhone',
+          'shippingAddress', 'deliveryZone', 'deliveryInstructions',
+          'itemCount', 'itemsSummary', 'subtotalBdt', 'discountBdt',
+          'couponCode', 'deliveryFeeBdt', 'totalAmountBdt', 'paymentMethod',
+          'paymentStatus', 'transactionReference', 'paymentVerifiedAt',
+          'requiresPrescription', 'prescriptionReviewId',
+          'prescriptionReviewStatus', 'orderStatus', 'courierName',
+          'trackingReference', 'cancellationReason', 'storeId',
+          'authorizedStaffUids', 'createdAt', 'updatedAt'
+        ]) &&
+        data.orderNumber is string && data.orderNumber.size() >= 4 && data.orderNumber.size() <= 40 && data.orderNumber.matches('^[A-Z0-9\\-]+$') &&
+        isValidId(data.customerId) &&
+        data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 120 &&
+        data.customerPhone is string && data.customerPhone.size() >= 5 && data.customerPhone.size() <= 32 &&
+        data.shippingAddress is string && data.shippingAddress.size() >= 5 && data.shippingAddress.size() <= 400 &&
+        data.deliveryZone is string && data.deliveryZone.size() >= 1 && data.deliveryZone.size() <= 80 &&
+        data.deliveryInstructions is string && data.deliveryInstructions.size() <= 300 &&
+        data.itemCount is number && data.itemCount >= 1 && data.itemCount <= 100 &&
+        data.itemsSummary is string && data.itemsSummary.size() >= 1 && data.itemsSummary.size() <= 300 &&
+        data.subtotalBdt is number && data.subtotalBdt >= 0 &&
+        data.discountBdt is number && data.discountBdt >= 0 && data.discountBdt <= data.subtotalBdt &&
+        data.couponCode is string && data.couponCode.size() <= 40 &&
+        data.deliveryFeeBdt is number && data.deliveryFeeBdt >= 0 &&
+        data.totalAmountBdt is number && data.totalAmountBdt >= 0 &&
+        data.paymentMethod in ['cod', 'bkash', 'nagad'] &&
+        data.paymentStatus in ['unpaid', 'pending_verification', 'verified_paid', 'refund_pending', 'refunded', 'failed'] &&
+        data.transactionReference is string && data.transactionReference.size() <= 100 &&
+        data.paymentVerifiedAt is string && data.paymentVerifiedAt.size() <= 40 &&
+        data.requiresPrescription is bool &&
+        data.prescriptionReviewId is string && data.prescriptionReviewId.size() <= 128 &&
+        data.prescriptionReviewStatus in ['not_required', 'pending_review', 'approved', 'rejected', 'more_info_requested'] &&
+        data.orderStatus in [
+          'pending', 'awaiting_review', 'confirmed', 'processing',
+          'ready_for_dispatch', 'shipped', 'delivered', 'cancelled',
+          'refund_pending', 'refunded'
+        ] &&
+        data.courierName is string && data.courierName.size() <= 80 &&
+        data.trackingReference is string && data.trackingReference.size() <= 100 &&
+        data.cancellationReason is string && data.cancellationReason.size() <= 300 &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function passesPrescriptionGate(orderData) {
+      return !orderData.requiresPrescription ||
+        !(orderData.orderStatus in ['confirmed', 'processing', 'ready_for_dispatch', 'shipped', 'delivered']) ||
+        (
+          orderData.prescriptionReviewStatus == 'approved' &&
+          isValidId(orderData.prescriptionReviewId) &&
+          existsAfter(/databases/$(database)/documents/prescriptionReviews/$(orderData.prescriptionReviewId)) &&
+          getAfter(/databases/$(database)/documents/prescriptionReviews/$(orderData.prescriptionReviewId)).data.reviewStatus == 'approved'
+        );
+    }
+
+    function isValidOrderItem(data) {
+      return data.keys().hasAll([
+          'orderId', 'productId', 'productName', 'genericName',
+          'manufacturer', 'unitSize', 'sku', 'batchNumber', 'unitPriceBdt',
+          'quantity', 'lineTotalBdt', 'prescriptionRequired', 'customerId',
+          'storeId', 'authorizedStaffUids', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'orderId', 'productId', 'productName', 'genericName',
+          'manufacturer', 'unitSize', 'sku', 'batchNumber', 'unitPriceBdt',
+          'quantity', 'lineTotalBdt', 'prescriptionRequired', 'customerId',
+          'storeId', 'authorizedStaffUids', 'createdAt'
+        ]) &&
+        isValidId(data.orderId) &&
+        isValidId(data.productId) &&
+        data.productName is string && data.productName.size() >= 1 && data.productName.size() <= 160 &&
+        data.genericName is string && data.genericName.size() <= 160 &&
+        data.manufacturer is string && data.manufacturer.size() <= 120 &&
+        data.unitSize is string && data.unitSize.size() <= 80 &&
+        data.sku is string && data.sku.size() <= 64 &&
+        data.batchNumber is string && data.batchNumber.size() <= 64 &&
+        data.unitPriceBdt is number && data.unitPriceBdt >= 0 &&
+        data.quantity is number && data.quantity >= 1 && data.quantity <= 1000 &&
+        data.lineTotalBdt is number && data.lineTotalBdt >= 0 &&
+        data.prescriptionRequired is bool &&
+        isValidId(data.customerId) &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidOrderStatusHistory(data) {
+      return data.keys().hasAll([
+          'orderId', 'fromStatus', 'toStatus', 'note', 'changedByUid',
+          'changedByName', 'changedByRole', 'customerId', 'storeId',
+          'authorizedStaffUids', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'orderId', 'fromStatus', 'toStatus', 'note', 'changedByUid',
+          'changedByName', 'changedByRole', 'customerId', 'storeId',
+          'authorizedStaffUids', 'createdAt'
+        ]) &&
+        isValidId(data.orderId) &&
+        data.fromStatus is string && data.fromStatus.size() <= 40 &&
+        data.toStatus is string && data.toStatus.size() >= 1 && data.toStatus.size() <= 40 &&
+        data.note is string && data.note.size() >= 1 && data.note.size() <= 400 &&
+        data.changedByUid == request.auth.uid &&
+        data.changedByUid.size() <= 128 &&
+        data.changedByName is string && data.changedByName.size() >= 1 && data.changedByName.size() <= 120 &&
+        data.changedByRole is string && data.changedByRole.size() >= 1 && data.changedByRole.size() <= 40 &&
+        isValidId(data.customerId) &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidPrescriptionReview(data) {
+      return data.keys().hasAll([
+          'orderId', 'orderNumber', 'customerId', 'customerName',
+          'medicineSummary', 'documentUrl', 'documentMimeType',
+          'prescriberName', 'clinicOrHospital', 'prescriptionIssueDate',
+          'reviewStatus', 'reviewerUid', 'reviewerName', 'reviewerLicense',
+          'reviewNotes', 'reviewedAt', 'storeId', 'authorizedStaffUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'orderId', 'orderNumber', 'customerId', 'customerName',
+          'medicineSummary', 'documentUrl', 'documentMimeType',
+          'prescriberName', 'clinicOrHospital', 'prescriptionIssueDate',
+          'reviewStatus', 'reviewerUid', 'reviewerName', 'reviewerLicense',
+          'reviewNotes', 'reviewedAt', 'storeId', 'authorizedStaffUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.orderId) &&
+        data.orderNumber is string && data.orderNumber.size() >= 4 && data.orderNumber.size() <= 40 &&
+        isValidId(data.customerId) &&
+        data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 120 &&
+        data.medicineSummary is string && data.medicineSummary.size() >= 1 && data.medicineSummary.size() <= 300 &&
+        data.documentUrl is string && data.documentUrl.size() >= 5 && data.documentUrl.size() <= 600 &&
+        data.documentMimeType is string && data.documentMimeType.size() <= 64 &&
+        data.prescriberName is string && data.prescriberName.size() >= 2 && data.prescriberName.size() <= 120 &&
+        data.clinicOrHospital is string && data.clinicOrHospital.size() <= 160 &&
+        data.prescriptionIssueDate is string && data.prescriptionIssueDate.size() >= 10 && data.prescriptionIssueDate.size() <= 32 &&
+        data.reviewStatus in ['pending_review', 'approved', 'rejected', 'more_info_requested'] &&
+        data.reviewerUid is string && data.reviewerUid.size() <= 128 &&
+        data.reviewerName is string && data.reviewerName.size() <= 120 &&
+        data.reviewerLicense is string && data.reviewerLicense.size() <= 64 &&
+        data.reviewNotes is string && data.reviewNotes.size() <= 600 &&
+        data.reviewedAt is string && data.reviewedAt.size() <= 40 &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCoupon(data) {
+      return data.keys().hasAll([
+          'code', 'description', 'discountType', 'discountValue',
+          'minOrderAmountBdt', 'maxDiscountBdt', 'startDate', 'endDate',
+          'usageLimit', 'usedCount', 'applicableCategory', 'status',
+          'storeId', 'authorizedStaffUids', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'code', 'description', 'discountType', 'discountValue',
+          'minOrderAmountBdt', 'maxDiscountBdt', 'startDate', 'endDate',
+          'usageLimit', 'usedCount', 'applicableCategory', 'status',
+          'storeId', 'authorizedStaffUids', 'createdAt', 'updatedAt'
+        ]) &&
+        data.code is string && data.code.size() >= 3 && data.code.size() <= 32 && data.code.matches('^[A-Z0-9_\\-]+$') &&
+        data.description is string && data.description.size() <= 240 &&
+        data.discountType in ['percentage', 'fixed_bdt'] &&
+        data.discountValue is number && data.discountValue > 0 && data.discountValue <= 100000 &&
+        data.minOrderAmountBdt is number && data.minOrderAmountBdt >= 0 &&
+        data.maxDiscountBdt is number && data.maxDiscountBdt >= 0 &&
+        data.startDate is string && data.startDate.size() >= 10 && data.startDate.size() <= 32 &&
+        data.endDate is string && data.endDate.size() >= 10 && data.endDate.size() <= 32 &&
+        data.usageLimit is number && data.usageLimit >= 1 && data.usageLimit <= 1000000 &&
+        data.usedCount is number && data.usedCount >= 0 && data.usedCount <= data.usageLimit &&
+        data.applicableCategory is string && data.applicableCategory.size() <= 100 &&
+        data.status in ['active', 'inactive'] &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidDeliveryZone(data) {
+      return data.keys().hasAll([
+          'zoneName', 'coverageAreas', 'deliveryFeeBdt',
+          'freeDeliveryMinOrderBdt', 'estimatedDeliveryText',
+          'courierPartner', 'instructions', 'status', 'storeId',
+          'authorizedStaffUids', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'zoneName', 'coverageAreas', 'deliveryFeeBdt',
+          'freeDeliveryMinOrderBdt', 'estimatedDeliveryText',
+          'courierPartner', 'instructions', 'status', 'storeId',
+          'authorizedStaffUids', 'createdAt', 'updatedAt'
+        ]) &&
+        data.zoneName is string && data.zoneName.size() >= 2 && data.zoneName.size() <= 80 &&
+        data.coverageAreas is string && data.coverageAreas.size() >= 2 && data.coverageAreas.size() <= 400 &&
+        data.deliveryFeeBdt is number && data.deliveryFeeBdt >= 0 && data.deliveryFeeBdt <= 10000 &&
+        data.freeDeliveryMinOrderBdt is number && data.freeDeliveryMinOrderBdt >= 0 && data.freeDeliveryMinOrderBdt <= 1000000 &&
+        data.estimatedDeliveryText is string && data.estimatedDeliveryText.size() >= 2 && data.estimatedDeliveryText.size() <= 80 &&
+        data.courierPartner is string && data.courierPartner.size() <= 80 &&
+        data.instructions is string && data.instructions.size() <= 300 &&
+        data.status in ['active', 'inactive'] &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSiteSettings(data) {
+      return data.keys().hasAll([
+          'siteName', 'tagline', 'taglineBn', 'logoUrl', 'faviconUrl',
+          'heroTitle', 'heroSubtitle', 'heroBannerUrl', 'heroCtaText',
+          'promoBannerText', 'featuredCategorySlugs', 'homepageSectionOrder',
+          'navigationLinks', 'supportPhone', 'supportEmail', 'supportHours',
+          'pharmacyLicenseNo', 'deliveryInfoPolicy', 'paymentInfoPolicy',
+          'enabledPaymentMethods', 'faqContent', 'termsAndConditions',
+          'privacyPolicy', 'returnRefundPolicy', 'storeId',
+          'authorizedStaffUids', 'updatedByUid', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'siteName', 'tagline', 'taglineBn', 'logoUrl', 'faviconUrl',
+          'heroTitle', 'heroSubtitle', 'heroBannerUrl', 'heroCtaText',
+          'promoBannerText', 'featuredCategorySlugs', 'homepageSectionOrder',
+          'navigationLinks', 'supportPhone', 'supportEmail', 'supportHours',
+          'pharmacyLicenseNo', 'deliveryInfoPolicy', 'paymentInfoPolicy',
+          'enabledPaymentMethods', 'faqContent', 'termsAndConditions',
+          'privacyPolicy', 'returnRefundPolicy', 'storeId',
+          'authorizedStaffUids', 'updatedByUid', 'createdAt', 'updatedAt'
+        ]) &&
+        data.siteName is string && data.siteName.size() >= 2 && data.siteName.size() <= 120 &&
+        data.tagline is string && data.tagline.size() <= 160 &&
+        data.taglineBn is string && data.taglineBn.size() <= 160 &&
+        data.logoUrl is string && data.logoUrl.size() <= 500 &&
+        data.faviconUrl is string && data.faviconUrl.size() <= 500 &&
+        data.heroTitle is string && data.heroTitle.size() >= 2 && data.heroTitle.size() <= 160 &&
+        data.heroSubtitle is string && data.heroSubtitle.size() <= 400 &&
+        data.heroBannerUrl is string && data.heroBannerUrl.size() <= 500 &&
+        data.heroCtaText is string && data.heroCtaText.size() <= 60 &&
+        data.promoBannerText is string && data.promoBannerText.size() <= 240 &&
+        isValidBoundedStringArray(data.featuredCategorySlugs, 8, 100) &&
+        isValidBoundedStringArray(data.homepageSectionOrder, 8, 60) &&
+        isValidBoundedStringArray(data.navigationLinks, 8, 160) &&
+        data.supportPhone is string && data.supportPhone.size() <= 40 &&
+        data.supportEmail is string && data.supportEmail.size() <= 254 &&
+        data.supportHours is string && data.supportHours.size() <= 80 &&
+        data.pharmacyLicenseNo is string && data.pharmacyLicenseNo.size() <= 80 &&
+        data.deliveryInfoPolicy is string && data.deliveryInfoPolicy.size() <= 1500 &&
+        data.paymentInfoPolicy is string && data.paymentInfoPolicy.size() <= 1500 &&
+        isValidBoundedStringArray(data.enabledPaymentMethods, 5, 32) &&
+        data.faqContent is string && data.faqContent.size() <= 2500 &&
+        data.termsAndConditions is string && data.termsAndConditions.size() <= 3000 &&
+        data.privacyPolicy is string && data.privacyPolicy.size() <= 3000 &&
+        data.returnRefundPolicy is string && data.returnRefundPolicy.size() <= 2500 &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.updatedByUid == request.auth.uid &&
+        data.updatedByUid.size() <= 128 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSupportTicket(data) {
+      return data.keys().hasAll([
+          'ticketNumber', 'customerId', 'customerName', 'subject', 'category',
+          'priority', 'status', 'message', 'staffResolutionNote',
+          'assignedToUid', 'storeId', 'authorizedStaffUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ticketNumber', 'customerId', 'customerName', 'subject', 'category',
+          'priority', 'status', 'message', 'staffResolutionNote',
+          'assignedToUid', 'storeId', 'authorizedStaffUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.ticketNumber is string && data.ticketNumber.size() >= 4 && data.ticketNumber.size() <= 40 &&
+        isValidId(data.customerId) &&
+        data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 120 &&
+        data.subject is string && data.subject.size() >= 3 && data.subject.size() <= 160 &&
+        data.category in ['order_issue', 'medicine_query', 'refund_request', 'account_deletion', 'delivery_delay'] &&
+        data.priority in ['low', 'medium', 'high'] &&
+        data.status in ['open', 'in_progress', 'resolved', 'closed'] &&
+        data.message is string && data.message.size() >= 3 && data.message.size() <= 1500 &&
+        data.staffResolutionNote is string && data.staffResolutionNote.size() <= 1500 &&
+        data.assignedToUid is string && data.assignedToUid.size() <= 128 &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAdminAuditLog(data) {
+      return data.keys().hasAll([
+          'action', 'module', 'targetId', 'targetLabel', 'actorUid',
+          'actorEmail', 'actorRole', 'details', 'storeId',
+          'authorizedStaffUids', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'action', 'module', 'targetId', 'targetLabel', 'actorUid',
+          'actorEmail', 'actorRole', 'details', 'storeId',
+          'authorizedStaffUids', 'createdAt'
+        ]) &&
+        data.action is string && data.action.size() >= 2 && data.action.size() <= 100 &&
+        data.module in ['auth', 'products', 'categories', 'inventory', 'orders', 'prescriptions', 'customers', 'payments', 'cms', 'coupons', 'staff'] &&
+        data.targetId is string && data.targetId.size() >= 1 && data.targetId.size() <= 128 &&
+        data.targetLabel is string && data.targetLabel.size() >= 1 && data.targetLabel.size() <= 160 &&
+        data.actorUid == request.auth.uid &&
+        data.actorUid.size() <= 128 &&
+        data.actorEmail is string && data.actorEmail.size() >= 3 && data.actorEmail.size() <= 254 &&
+        data.actorRole is string && data.actorRole.size() >= 2 && data.actorRole.size() <= 40 &&
+        data.details is string && data.details.size() >= 2 && data.details.size() <= 800 &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidStaffPushDevice(data) {
+      return data.keys().hasAll([
+          'deviceId', 'staffUid', 'staffEmail', 'fcmToken', 'vapidKeyPrefix',
+          'userAgent', 'status', 'storeId', 'authorizedStaffUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'deviceId', 'staffUid', 'staffEmail', 'fcmToken', 'vapidKeyPrefix',
+          'userAgent', 'status', 'storeId', 'authorizedStaffUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.deviceId) &&
+        isValidId(data.staffUid) &&
+        data.staffEmail is string && data.staffEmail.size() >= 3 && data.staffEmail.size() <= 254 &&
+        data.fcmToken is string && data.fcmToken.size() >= 16 && data.fcmToken.size() <= 2048 &&
+        data.vapidKeyPrefix is string && data.vapidKeyPrefix.size() >= 6 && data.vapidKeyPrefix.size() <= 32 &&
+        data.userAgent is string && data.userAgent.size() <= 300 &&
+        data.status in ['active', 'disabled'] &&
+        data.storeId == 'finesteride-recur-bd' &&
+        isValidStaffUidArray(data.authorizedStaffUids) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // COLLECTION MATCH RULES
+    // -------------------------------------------------------------------------
+
+    // 1. STAFF MEMBERS & RBAC
+    match /staffMembers/{staffUid} {
+      allow get: if isValidId(staffUid) && (isOwner(staffUid) || isAnyActiveStaff());
+      allow list: if canStaffList(existing());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(staffUid) &&
+        isValidStaffMember(incoming()) &&
+        incoming().uid == staffUid &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          isSuperAdmin() ||
+          (isAdminManager() && incoming().role != 'super_admin')
+        );
+
+      allow update: if isVerifiedUser() &&
+        isValidId(staffUid) &&
+        isValidStaffMember(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time &&
+        (
+          isSuperAdmin() ||
+          (
+            isAdminManager() &&
+            existing().role != 'super_admin' &&
+            incoming().role != 'super_admin' &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'role', 'status', 'department',
+              'licenseNumber', 'authorizedStaffUids', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(staffUid) && isSuperAdmin() && staffUid != request.auth.uid;
+    }
+
+    // 2. CATEGORIES
+    match /categories/{categoryId} {
+      allow get: if isValidId(categoryId) && (
+        (isVerifiedUser() && existing().publicationStatus == 'published') ||
+        isAnyActiveStaff()
+      );
+      allow list: if (isVerifiedUser() && existing().publicationStatus == 'published') || canStaffList(existing());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(categoryId) &&
+        isValidCategory(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isCatalogStaff();
+
+      allow update: if isVerifiedUser() &&
+        isValidId(categoryId) &&
+        isValidCategory(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time &&
+        (
+          isSuperAdmin() ||
+          (
+            isCatalogStaff() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'name', 'nameBn', 'slug', 'description', 'iconName', 'imageUrl',
+              'parentCategoryId', 'displayOrder', 'publicationStatus',
+              'activeProductCount', 'authorizedStaffUids', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(categoryId) &&
+        isAdminManager() &&
+        existing().activeProductCount == 0;
+    }
+
+    // 3. PRODUCTS
+    match /products/{productId} {
+      allow get: if isValidId(productId) && (
+        (isVerifiedUser() && existing().publicationStatus == 'published') ||
+        isAnyActiveStaff()
+      );
+      allow list: if (isVerifiedUser() && existing().publicationStatus == 'published') || canStaffList(existing());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(productId) &&
+        isValidProduct(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/categories/$(incoming().categoryId)) &&
+        isCatalogStaff();
+
+      allow update: if isVerifiedUser() &&
+        isValidId(productId) &&
+        isValidProduct(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/categories/$(incoming().categoryId)) &&
+        (
+          isSuperAdmin() ||
+          // Tier 1: Store Admin full catalog & pricing edit
+          (
+            isAdminManager() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'name', 'slug', 'genericName', 'manufacturer', 'categoryId',
+              'categoryName', 'subcategory', 'description', 'images', 'unitSize',
+              'sellingPrice', 'previousPrice', 'stockQuantity', 'lowStockThreshold',
+              'sku', 'availabilityStatus', 'prescriptionType', 'usageInstructions',
+              'storageInstructions', 'nearestExpiryDate', 'publicationStatus',
+              'featured', 'popular', 'authorizedStaffUids', 'updatedAt'
+            ])
+          ) ||
+          // Tier 2: Inventory Manager catalog/stock/expiry edit (cannot alter price or prescription class)
+          (
+            isActiveStaffWithRole(['inventory_manager']) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'description', 'images', 'unitSize', 'stockQuantity',
+              'lowStockThreshold', 'sku', 'availabilityStatus',
+              'usageInstructions', 'storageInstructions', 'nearestExpiryDate',
+              'publicationStatus', 'authorizedStaffUids', 'updatedAt'
+            ])
+          ) ||
+          // Tier 3: Order Manager atomic stock reservation/restock only
+          (
+            isActiveStaffWithRole(['order_manager']) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'stockQuantity', 'availabilityStatus', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(productId) && isAdminManager();
+    }
+
+    // 4. PRODUCT BATCHES (CONFIDENTIAL INTERNAL INVENTORY & WHOLESALE COST)
+    match /productBatches/{batchId} {
+      allow get: if isValidId(batchId) && isActiveStaffWithRole(['super_admin', 'store_admin', 'inventory_manager', 'analyst']);
+      allow list: if canStaffList(existing());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(batchId) &&
+        isValidProductBatch(incoming()) &&
+        incoming().recordedByUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/products/$(incoming().productId)) &&
+        isCatalogStaff();
+
+      allow update: if isVerifiedUser() &&
+        isValidId(batchId) &&
+        isValidProductBatch(incoming()) &&
+        incoming().productId == existing().productId &&
+        incoming().recordedByUid == existing().recordedByUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time &&
+        (
+          isSuperAdmin() ||
+          (
+            isCatalogStaff() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'quantityRemaining', 'status', 'notes', 'expiryDate',
+              'authorizedStaffUids', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(batchId) && isSuperAdmin();
+    }
+
+    // 5. INVENTORY MOVEMENTS (APPEND-ONLY + PILLAR 7 ATOMIC SYNC)
+    match /inventoryMovements/{movementId} {
+      allow get: if isValidId(movementId) && isAnyActiveStaff();
+      allow list: if canStaffList(existing());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(movementId) &&
+        isValidInventoryMovement(incoming()) &&
+        incoming().createdAt == request.time &&
+        exists(/databases/$(database)/documents/products/$(incoming().productId)) &&
+        existsAfter(/databases/$(database)/documents/products/$(incoming().productId)) &&
+        getAfter(/databases/$(database)/documents/products/$(incoming().productId)).data.stockQuantity == incoming().newStock &&
+        isActiveStaffWithRole(['super_admin', 'store_admin', 'inventory_manager', 'order_manager']);
+
+      allow update, delete: if false;
+    }
+
+    // 6. CUSTOMER ACCOUNTS & ISOLATED PII SUBCOLLECTION (PILLAR 1 & 6)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAnyActiveStaff());
+      allow list: if (isVerifiedUser() && existing().uid == request.auth.uid) || canStaffList(existing());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isValidUserAccount(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            isOwner(userId) &&
+            incoming().uid == request.auth.uid &&
+            incoming().accountStatus == 'active' &&
+            incoming().orderCount == 0 &&
+            incoming().totalSpentBdt == 0
+          ) ||
+          isAdminManager()
+        );
+
+      allow update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isValidUserAccount(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time &&
+        (
+          isSuperAdmin() ||
+          (
+            isOwner(userId) &&
+            existing().accountStatus != 'suspended' &&
+            incoming().accountStatus in ['active', 'deletion_requested'] &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'accountStatus', 'updatedAt'
+            ])
+          ) ||
+          (
+            isPiiAuthorizedStaff() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'accountStatus', 'orderCount',
+              'totalSpentBdt', 'authorizedStaffUids', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(userId) && isSuperAdmin();
+
+      match /privateProfile/{profileId} {
+        allow get: if isValidId(userId) &&
+          isValidId(profileId) &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          (isOwner(userId) || isPiiAuthorizedStaff());
+
+        allow list: if (isVerifiedUser() && existing().uid == request.auth.uid) || canStaffList(existing());
+
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          profileId == 'pii' &&
+          isValidUserPrivateProfile(incoming()) &&
+          incoming().uid == userId &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          (exists(/databases/$(database)/documents/users/$(userId)) || existsAfter(/databases/$(database)/documents/users/$(userId))) &&
+          (isOwner(userId) || isAdminManager());
+
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          profileId == 'pii' &&
+          isValidUserPrivateProfile(incoming()) &&
+          incoming().uid == existing().uid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().storeId == existing().storeId &&
+          incoming().updatedAt == request.time &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          (
+            isSuperAdmin() ||
+            (
+              isOwner(userId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'phone', 'deliveryAddress', 'city', 'deliveryZone',
+                'deletionReason', 'updatedAt'
+              ])
+            ) ||
+            (
+              isPiiAuthorizedStaff() &&
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'phone', 'deliveryAddress', 'city', 'deliveryZone',
+                'deletionReason', 'authorizedStaffUids', 'updatedAt'
+              ])
+            )
+          );
+
+        allow delete: if isValidId(userId) && profileId == 'pii' && isSuperAdmin();
+      }
+    }
+
+    // 7. ORDERS & SUBCOLLECTIONS (ITEMS + STATUS HISTORY)
+    match /orders/{orderId} {
+      allow get: if isValidId(orderId) && (isOwner(existing().customerId) || isAnyActiveStaff());
+      allow list: if (isVerifiedUser() && existing().customerId == request.auth.uid) || canStaffList(existing());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(orderId) &&
+        isValidOrder(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        passesPrescriptionGate(incoming()) &&
+        (
+          (
+            incoming().customerId == request.auth.uid &&
+            incoming().paymentStatus in ['unpaid', 'pending_verification'] &&
+            incoming().paymentVerifiedAt == '' &&
+            incoming().orderStatus in ['pending', 'awaiting_review']
+          ) ||
+          isOrderStaff()
+        );
+
+      allow update: if isVerifiedUser() &&
+        isValidId(orderId) &&
+        isValidOrder(incoming()) &&
+        incoming().orderNumber == existing().orderNumber &&
+        incoming().customerId == existing().customerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time &&
+        passesPrescriptionGate(incoming()) &&
+        (
+          isSuperAdmin() ||
+          (
+            !(existing().orderStatus in ['cancelled', 'refunded']) &&
+            (
+              (
+                isOrderStaff() &&
+                incoming().diff(existing()).affectedKeys().hasOnly([
+                  'orderStatus', 'paymentStatus', 'transactionReference',
+                  'paymentVerifiedAt', 'prescriptionReviewId',
+                  'prescriptionReviewStatus', 'courierName',
+                  'trackingReference', 'cancellationReason',
+                  'authorizedStaffUids', 'updatedAt'
+                ])
+              ) ||
+              (
+                isOwner(existing().customerId) &&
+                existing().orderStatus in ['pending', 'awaiting_review'] &&
+                incoming().orderStatus == 'cancelled' &&
+                incoming().diff(existing()).affectedKeys().hasOnly([
+                  'orderStatus', 'cancellationReason', 'updatedAt'
+                ])
+              )
+            )
+          )
+        );
+
+      allow delete: if false;
+
+      match /items/{itemId} {
+        allow get: if isValidId(orderId) &&
+          isValidId(itemId) &&
+          exists(/databases/$(database)/documents/orders/$(orderId)) &&
+          (
+            get(/databases/$(database)/documents/orders/$(orderId)).data.customerId == request.auth.uid ||
+            isAnyActiveStaff()
+          );
+
+        allow list: if (isVerifiedUser() && existing().customerId == request.auth.uid) || canStaffList(existing());
+
+        allow create: if isVerifiedUser() &&
+          isValidId(orderId) &&
+          isValidId(itemId) &&
+          isValidOrderItem(incoming()) &&
+          incoming().orderId == orderId &&
+          incoming().createdAt == request.time &&
+          (exists(/databases/$(database)/documents/orders/$(orderId)) || existsAfter(/databases/$(database)/documents/orders/$(orderId))) &&
+          (incoming().customerId == request.auth.uid || isOrderStaff());
+
+        allow update, delete: if false;
+      }
+
+      match /statusHistory/{historyId} {
+        allow get: if isValidId(orderId) &&
+          isValidId(historyId) &&
+          exists(/databases/$(database)/documents/orders/$(orderId)) &&
+          (
+            get(/databases/$(database)/documents/orders/$(orderId)).data.customerId == request.auth.uid ||
+            isAnyActiveStaff()
+          );
+
+        allow list: if (isVerifiedUser() && existing().customerId == request.auth.uid) || canStaffList(existing());
+
+        allow create: if isVerifiedUser() &&
+          isValidId(orderId) &&
+          isValidId(historyId) &&
+          isValidOrderStatusHistory(incoming()) &&
+          incoming().orderId == orderId &&
+          incoming().createdAt == request.time &&
+          (exists(/databases/$(database)/documents/orders/$(orderId)) || existsAfter(/databases/$(database)/documents/orders/$(orderId))) &&
+          (incoming().customerId == request.auth.uid || isOrderStaff());
+
+        allow update, delete: if false;
+      }
+    }
+
+    // 8. PRESCRIPTION REVIEWS (STRICT CLINICAL & OWNER ISOLATION)
+    match /prescriptionReviews/{reviewId} {
+      allow get: if isValidId(reviewId) && (
+        isOwner(existing().customerId) ||
+        isActiveStaffWithRole(['super_admin', 'store_admin', 'order_manager'])
+      );
+      allow list: if (isVerifiedUser() && existing().customerId == request.auth.uid) || canStaffList(existing());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(reviewId) &&
+        isValidPrescriptionReview(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            incoming().customerId == request.auth.uid &&
+            incoming().reviewStatus == 'pending_review' &&
+            incoming().reviewerUid == ''
+          ) ||
+          isAdminManager()
+        );
+
+      allow update: if isVerifiedUser() &&
+        isValidId(reviewId) &&
+        isValidPrescriptionReview(incoming()) &&
+        incoming().orderId == existing().orderId &&
+        incoming().customerId == existing().customerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time &&
+        (
+          isSuperAdmin() ||
+          (
+            isAdminManager() &&
+            incoming().reviewerUid == request.auth.uid &&
+            incoming().reviewerLicense.size() >= 3 &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'reviewStatus', 'reviewerUid', 'reviewerName',
+              'reviewerLicense', 'reviewNotes', 'reviewedAt',
+              'authorizedStaffUids', 'updatedAt'
+            ])
+          ) ||
+          (
+            isOwner(existing().customerId) &&
+            existing().reviewStatus == 'more_info_requested' &&
+            incoming().reviewStatus == 'pending_review' &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'documentUrl', 'documentMimeType', 'prescriberName',
+              'clinicOrHospital', 'prescriptionIssueDate', 'reviewStatus',
+              'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    // 9. COUPONS & PROMOTIONS
+    match /coupons/{couponId} {
+      allow get: if isValidId(couponId) && (
+        (isVerifiedUser() && existing().status == 'active') ||
+        isAnyActiveStaff()
+      );
+      allow list: if (isVerifiedUser() && existing().status == 'active') || canStaffList(existing());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(couponId) &&
+        isValidCoupon(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdminManager();
+
+      allow update: if isVerifiedUser() &&
+        isValidId(couponId) &&
+        isValidCoupon(incoming()) &&
+        incoming().code == existing().code &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time &&
+        (
+          isSuperAdmin() ||
+          (
+            isAdminManager() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'description', 'discountType', 'discountValue',
+              'minOrderAmountBdt', 'maxDiscountBdt', 'startDate', 'endDate',
+              'usageLimit', 'usedCount', 'applicableCategory', 'status',
+              'authorizedStaffUids', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(couponId) && isAdminManager();
+    }
+
+    // 10. DELIVERY ZONES
+    match /deliveryZones/{zoneId} {
+      allow get: if isValidId(zoneId) && (
+        (isVerifiedUser() && existing().status == 'active') ||
+        isAnyActiveStaff()
+      );
+      allow list: if (isVerifiedUser() && existing().status == 'active') || canStaffList(existing());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(zoneId) &&
+        isValidDeliveryZone(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdminManager();
+
+      allow update: if isVerifiedUser() &&
+        isValidId(zoneId) &&
+        isValidDeliveryZone(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time &&
+        (
+          isSuperAdmin() ||
+          (
+            isAdminManager() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'zoneName', 'coverageAreas', 'deliveryFeeBdt',
+              'freeDeliveryMinOrderBdt', 'estimatedDeliveryText',
+              'courierPartner', 'instructions', 'status',
+              'authorizedStaffUids', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(zoneId) && isAdminManager();
+    }
+
+    // 11. SITE SETTINGS & WEBSITE CMS
+    match /siteSettings/{settingId} {
+      allow get: if isValidId(settingId) && (
+        (isVerifiedUser() && existing().storeId == 'finesteride-recur-bd') ||
+        isAnyActiveStaff()
+      );
+      allow list: if canStaffList(existing());
+
+      allow create: if isVerifiedUser() &&
+        settingId == 'storefront_config' &&
+        isValidSiteSettings(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdminManager();
+
+      allow update: if isVerifiedUser() &&
+        settingId == 'storefront_config' &&
+        isValidSiteSettings(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time &&
+        (
+          isSuperAdmin() ||
+          (
+            isAdminManager() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'siteName', 'tagline', 'taglineBn', 'logoUrl', 'faviconUrl',
+              'heroTitle', 'heroSubtitle', 'heroBannerUrl', 'heroCtaText',
+              'promoBannerText', 'featuredCategorySlugs',
+              'homepageSectionOrder', 'navigationLinks', 'supportPhone',
+              'supportEmail', 'supportHours', 'pharmacyLicenseNo',
+              'deliveryInfoPolicy', 'paymentInfoPolicy',
+              'enabledPaymentMethods', 'faqContent', 'termsAndConditions',
+              'privacyPolicy', 'returnRefundPolicy', 'authorizedStaffUids',
+              'updatedByUid', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    // 12. CUSTOMER SUPPORT TICKETS
+    match /supportTickets/{ticketId} {
+      allow get: if isValidId(ticketId) && (isOwner(existing().customerId) || isSupportStaff());
+      allow list: if (isVerifiedUser() && existing().customerId == request.auth.uid) || canStaffList(existing());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(ticketId) &&
+        isValidSupportTicket(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            incoming().customerId == request.auth.uid &&
+            incoming().status == 'open' &&
+            incoming().staffResolutionNote == ''
+          ) ||
+          isSupportStaff()
+        );
+
+      allow update: if isVerifiedUser() &&
+        isValidId(ticketId) &&
+        isValidSupportTicket(incoming()) &&
+        incoming().ticketNumber == existing().ticketNumber &&
+        incoming().customerId == existing().customerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time &&
+        (
+          isSuperAdmin() ||
+          (
+            existing().status != 'closed' &&
+            isSupportStaff() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'priority', 'status', 'staffResolutionNote',
+              'assignedToUid', 'authorizedStaffUids', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    // 13. ADMIN AUDIT LOGS (STRICTLY APPEND-ONLY)
+    match /adminAuditLogs/{logId} {
+      allow get: if isValidId(logId) && isAdminManager();
+      allow list: if canStaffList(existing());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(logId) &&
+        isValidAdminAuditLog(incoming()) &&
+        incoming().createdAt == request.time &&
+        isAnyActiveStaff();
+
+      allow update, delete: if false;
+    }
+
+    // 14. STAFF WEB PUSH DEVICES (FCM VAPID SUBSCRIPTIONS)
+    match /staffPushDevices/{deviceId} {
+      allow get: if isValidId(deviceId) && (isOwner(existing().staffUid) || isAdminManager());
+      allow list: if (isVerifiedUser() && existing().staffUid == request.auth.uid) || canStaffList(existing());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(deviceId) &&
+        isValidStaffPushDevice(incoming()) &&
+        incoming().deviceId == deviceId &&
+        incoming().staffUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAnyActiveStaff();
+
+      allow update: if isVerifiedUser() &&
+        isValidId(deviceId) &&
+        isValidStaffPushDevice(incoming()) &&
+        incoming().deviceId == existing().deviceId &&
+        incoming().staffUid == existing().staffUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time &&
+        (isOwner(existing().staffUid) || isSuperAdmin()) &&
+        isAnyActiveStaff() &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'staffEmail', 'fcmToken', 'vapidKeyPrefix', 'userAgent',
+          'status', 'authorizedStaffUids', 'updatedAt'
+        ]);
+
+      allow delete: if isValidId(deviceId) && (isOwner(existing().staffUid) || isSuperAdmin());
+    }
+  }
+}

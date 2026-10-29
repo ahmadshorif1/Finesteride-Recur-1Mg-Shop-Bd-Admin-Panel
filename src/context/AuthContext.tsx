@@ -501,6 +501,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAuthError(null);
     setPopupBlocked(false);
     try {
+      const primaryUrl = getSafeContinueUrl();
       await signInWithRedirect(auth, googleProvider, popupRedirectResolver);
     } catch (err) {
       const guidance = formatFirebaseAuthError(err, 'google');
