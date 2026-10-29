@@ -10,11 +10,18 @@ service cloud.firestore {
     // =========================================================================
     // SHARED PRIMITIVES & RBAC HELPERS
     // =========================================================================
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
     function isSignedIn() { return request.auth != null; }
+    function isVerifiedUser() { return isSignedIn() && request.auth.token.email_verified == true; }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isVerifiedOwner(userId) { return isVerifiedUser() && request.auth.uid == userId; }
     
-    // অ্যাডমিন মালিকানা এখন সম্পূর্ণ ডেটাবেজ-ভিত্তিক (UID নির্ভর)
-    // কোনো ইমেইল হার্ডকোড করা নেই।
+    // Admin Check: Consolidated based on UID in admins/staffMembers collections
     function isAdmin() {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
@@ -26,66 +33,109 @@ service cloud.firestore {
       return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
-    // 9. TEST CONNECTION
-    match /test/connection {
-      allow read: if true;
-    }
-
     // =========================================================================
     // COLLECTION MATCH BLOCKS
     // =========================================================================
 
-    // 1. STAFF REGISTRATION (সহজ করা হয়েছে)
-    match /staffMembers/{staffUid} {
-      // নিজের প্রোফাইল রিড করতে পারবে, অ্যাডমিন সবাইকে পারবে
-      allow get: if isSignedIn() && (request.auth.uid == staffUid || isAdmin());
-      // যে কেউ নিজের প্রোফাইল তৈরি করতে পারবে (সহজ রেজিস্ট্রেশন)
-      allow create: if isSignedIn() && request.auth.uid == staffUid;
-      // শুধুমাত্র অ্যাডমিনরাই অন্য স্টাফদের এডিট বা ডিলিট করতে পারবে
-      allow update, delete: if isAdmin();
-      allow list: if isAdmin();
-    }
-    
-    // 2. ADMINS
+    // 1. ADMINS & STAFF
     match /admins/{adminId} {
       allow get, list: if isAdmin();
-      // সুপার অ্যাডমিন নিজেই অন্য কাউকে অ্যাডমিন বানাতে পারবে
       allow create, update, delete: if isSuperAdmin();
     }
+    
+    match /staffMembers/{staffUid} {
+      allow get: if isSignedIn() && (isOwner(staffUid) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isSignedIn() && request.auth.uid == staffUid;
+      allow update, delete: if isAdmin();
+    }
 
-    // 3. CATEGORIES
+    // 2. CATEGORIES
     match /categories/{categoryId} {
-      allow get: if (resource == null || request.resource.data.isActive == true || isAdmin());
-      allow list: if isAdmin(); // বা পাব্লিকলি রিড অ্যালাউ করতে চাইলে শর্ত দিন
+      allow get: if (resource == null || existing().isActive == true || isAdmin());
+      allow list: if existing().isActive == true || isAdmin();
       allow create, update, delete: if isAdmin();
     }
 
-    // 4. PRODUCTS
+    // 3. PRODUCTS
     match /products/{productId} {
-      allow get: if (resource == null || request.resource.data.isActive == true || isAdmin());
-      allow list: if isAdmin(); 
+      allow get: if (resource == null || existing().isActive == true || isAdmin());
+      allow list: if existing().isActive == true || isAdmin();
       allow create, update, delete: if isAdmin();
     }
 
-    // 5. COUPONS & SITE SETTINGS
+    // 4. COUPONS
     match /coupons/{couponId} {
-      allow read, write: if isAdmin();
+      allow get: if (resource == null || existing().isActive == true || isAdmin());
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
+    // 5. USERS & PRIVATE PROFILE
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+
+      match /private/{docId} {
+        allow get, update: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId);
+      }
+
+      match /addresses/{addressId} {
+        allow get, create, update, delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /cart/{cartItemId} {
+        allow get, create, update, delete: if isOwner(userId);
+      }
+    }
+
+    // 6. PRESCRIPTIONS & ORDERS
+    match /prescriptionReviews/{prescriptionId} {
+      allow get, list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update: if isAdmin() || (isOwner(existing().userId) && incoming().status == 'pending_review');
+    }
+
+    match /orders/{orderId} {
+      allow get, list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update: if isAdmin() || (isOwner(existing().userId) && !existing().cancellationRequested);
+      
+      match /items/{itemId} {
+        allow get, list, create: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      }
+    }
+
+    // 7. NOTIFICATIONS & SUPPORT
+    match /notifications/{notificationId} {
+      allow get, list, update: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isAdmin();
+    }
+
+    match /supportTickets/{ticketId} {
+      allow get, list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update: if isAdmin() || (isOwner(existing().userId) && existing().status != 'closed');
+    }
+
+    // 8. SITE SETTINGS & AUDIT
     match /siteSettings/{settingId} {
       allow get: if true;
       allow update: if isAdmin();
     }
-
-    // 6. USERS & ORDERS (পাব্লিক ইউজারদের জন্য)
-    match /users/{userId} {
-      allow read, write: if isOwner(userId) || isAdmin();
+    
+    match /adminAuditLogs/{logId} {
+      allow get, list: if isAdmin();
+      allow create: if isAdmin();
     }
 
-    match /orders/{orderId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid && !resource.data.cancellationRequested);
+    // 9. TEST CONNECTION
+    match /test/connection {
+      allow read: if true;
     }
   }
 }
