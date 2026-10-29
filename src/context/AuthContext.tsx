@@ -409,16 +409,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthError(null);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : 'Server identity verification failed.';
-        if (
-          errMsg.includes('not found in Firebase Identity Toolkit') ||
-          errMsg.includes('Invalid or expired Firebase Authentication ID token')
-        ) {
-          await signOut(auth);
-          setAuthError('Your previous login session expired or was reset in Firebase Console. Sign in again below.');
-          setStaffLoading(false);
-          setAuthReady(true);
-          return;
-        }
+        // Instead of automatically signing out, we now log the error and let the UI handle the state
+        console.error('Server session verification failed:', errMsg);
         setServerVerified(false);
         setAuthError(errMsg);
       }

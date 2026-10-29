@@ -477,14 +477,31 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               <h1 className="text-xl font-bold text-[#0F172A]">
                 {isSuspendedStaff
                   ? 'Administrative Account Suspended'
-                  : 'Unauthorized Storefront Account'}
+                  : 'Access Pending Verification'}
               </h1>
               <p className="text-sm text-[#64748B] leading-relaxed">
                 {isSuspendedStaff
                   ? 'Your pharmacy staff profile is currently suspended. Contact a Super Administrator to review your account standing.'
-                  : 'এই অ্যাকাউন্টে এখনো স্টাফ বা অ্যাডমিন অনুমতি দেওয়া হয়নি। নিচে আপনার Firebase Auth UID কপি করে Super Admin-এর মাধ্যমে Staff Management-এ যুক্ত করুন।'}
+                  : 'আপনার অ্যাকাউন্টটি সিস্টেমের জন্য অনুমোদিত নয় অথবা এখনো ভেরিফিকেশন সম্পন্ন হয়নি। আপনার এক্সেস সক্রিয় করতে নিচের বাটনটি চাপুন অথবা সুপার অ্যাডমিনের সাথে যোগাযোগ করুন।'}
               </p>
             </div>
+          </div>
+
+          <div className="flex gap-3 pt-4">
+              <button
+                type="button"
+                onClick={() => void logoutAdmin()}
+                className="px-4 py-2.5 text-sm font-medium text-[#64748B] hover:text-[#0F172A] border border-[#E6ECEF] rounded-xl transition-colors"
+              >
+                Sign Out
+              </button>
+              <button
+                type="button"
+                onClick={() => void retrySessionVerification()}
+                className="px-4 py-2.5 text-sm font-semibold text-white bg-[#0D7E74] hover:bg-[#09635B] rounded-xl transition-colors"
+              >
+                Verify & Refresh Access
+              </button>
           </div>
 
           <div className="p-4 bg-[#F4F7F8] border border-[#E6ECEF] rounded-xl space-y-2.5 text-xs">

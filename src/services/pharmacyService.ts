@@ -160,6 +160,7 @@ export async function verifyServerSession(): Promise<{
   await currentUser.getIdTokenResult(true);
   
   const isGoogleUser = currentUser.providerData.some(p => p.providerId === 'google.com');
+  // Only enforce email verification for non-Google users, as Google handles its own verification
   if (!currentUser.emailVerified && !isGoogleUser) {
     throw new Error('Verified email address is required for administrative operations.');
   }
