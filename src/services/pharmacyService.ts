@@ -158,7 +158,9 @@ export async function verifyServerSession(): Promise<{
   // Direct Firebase Identity Toolkit / Auth token verification fallback
   await currentUser.reload();
   await currentUser.getIdTokenResult(true);
-  if (!currentUser.emailVerified) {
+  
+  const isGoogleUser = currentUser.providerData.some(p => p.providerId === 'google.com');
+  if (!currentUser.emailVerified && !isGoogleUser) {
     throw new Error('Verified email address is required for administrative operations.');
   }
   const normalizedEmail = (currentUser.email || '').trim().toLowerCase();
