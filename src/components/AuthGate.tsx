@@ -806,13 +806,31 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                     clearAuthError();
                     setStatusMessage(null);
                   }}
-                  className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
+                  className={`flex-1 px-3 py-2.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center justify-center gap-2 ${
                     authTab === 'google'
-                      ? 'bg-white text-[#0F172A] shadow-xs'
+                      ? 'bg-white text-[#0D7E74] shadow-xs'
                       : 'text-[#64748B] hover:text-[#0F172A]'
                   }`}
                 >
-                  Google Workspace / SSO
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                    />
+                  </svg>
+                  <span>{t('গুগল সাইনআপ / লগইন', 'Google Sign In / Sign Up')}</span>
                 </button>
                 <button
                   type="button"
@@ -821,142 +839,42 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                     clearAuthError();
                     setStatusMessage(null);
                   }}
-                  className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
+                  className={`flex-1 px-3 py-2.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center justify-center gap-2 ${
                     authTab === 'email'
-                      ? 'bg-white text-[#0F172A] shadow-xs'
+                      ? 'bg-white text-[#0D7E74] shadow-xs'
                       : 'text-[#64748B] hover:text-[#0F172A]'
                   }`}
                 >
-                  Email &amp; Password
+                  <Mail className="w-4 h-4 shrink-0" />
+                  <span>{t('ইমেইল ও পাসওয়ার্ড', 'Email & Password')}</span>
                 </button>
               </div>
 
               {authError && (
                 <div className="p-3.5 bg-[#FEF2F2] border border-[#FECACA] rounded-xl text-xs text-[#991B1B] space-y-2.5 leading-relaxed">
                   <div className="flex items-start gap-2.5">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[#DC2626]" />
                     <span>{authError}</span>
                   </div>
-
-                  {popupBlocked && authTab === 'google' && (
-                    <div className="flex flex-wrap items-center gap-2 pt-1 pl-6">
+                  {popupBlocked && (
+                    <div className="pt-1">
                       <button
                         type="button"
                         disabled={busy}
                         onClick={async () => {
-                          const signInTask = loginWithGoogle();
                           setBusy(true);
                           try {
-                            await signInTask;
+                            await loginWithGoogleRedirect();
                           } catch {
                             // Handled in AuthContext
                           } finally {
                             setBusy(false);
                           }
                         }}
-                        className="px-2.5 py-1.5 text-xs font-semibold text-white bg-[#0D7E74] hover:bg-[#09635B] rounded-lg transition-colors whitespace-nowrap shrink-0"
+                        className="px-3 py-1.5 text-xs font-semibold text-white bg-[#0D7E74] hover:bg-[#086058] rounded-lg transition-colors"
                       >
-                        Retry Google Popup
+                        {t('সরাসরি রিডাইরেক্ট করে গুগল লগইন করুন', 'Continue via Google Redirect')}
                       </button>
-                      {!embeddedInIframe && (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={async () => {
-                            setBusy(true);
-                            try {
-                              await loginWithGoogleRedirect();
-                            } catch {
-                              setBusy(false);
-                            }
-                          }}
-                          className="px-2.5 py-1.5 text-xs font-medium bg-white border border-[#FECACA] text-[#0F172A] hover:bg-[#F8FAFC] rounded-lg transition-colors whitespace-nowrap shrink-0"
-                        >
-                          Continue via Redirect
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAuthTab('email');
-                          clearAuthError();
-                        }}
-                        className="px-2.5 py-1.5 text-xs font-medium bg-white border border-[#FECACA] text-[#991B1B] hover:bg-[#FEE2E2] rounded-lg transition-colors whitespace-nowrap shrink-0"
-                      >
-                        Use Email &amp; Password
-                      </button>
-                    </div>
-                  )}
-
-                  {showPasswordSetupRecovery && (
-                    <div className="pt-1.5 pl-6 flex flex-col gap-2">
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={async () => {
-                          setBusy(true);
-                          setStatusMessage(null);
-                          try {
-                            const result = await setupPasswordOrSendEmailLink(email, password);
-                            clearAuthError();
-                            setStatusMessage(result.message);
-                          } catch {
-                            // Error state set in AuthContext
-                          } finally {
-                            setBusy(false);
-                          }
-                        }}
-                        className="w-full px-3 py-2 text-xs font-semibold text-white bg-[#0D7E74] hover:bg-[#09635B] rounded-lg transition-colors text-center"
-                      >
-                        পপআপ ছাড়াই ইমেইল লিংক দিয়ে এই পাসওয়ার্ড সেট ও লগইন করুন
-                      </button>
-
-                      <div className="flex flex-wrap items-center gap-2">
-                        {email.trim() && (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={async () => {
-                              setBusy(true);
-                              setStatusMessage(null);
-                              try {
-                                const msg = await requestPasswordReset(email);
-                                clearAuthError();
-                                setStatusMessage(msg);
-                              } catch {
-                                // Handled in context
-                              } finally {
-                                setBusy(false);
-                              }
-                            }}
-                            className="px-2.5 py-1.5 text-xs font-medium bg-white border border-[#FECACA] text-[#0F172A] hover:bg-[#F8FAFC] rounded-lg transition-colors whitespace-nowrap shrink-0"
-                          >
-                            Send Password Reset Email
-                          </button>
-                        )}
-
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={async () => {
-                            const task = linkPasswordViaGoogle(email, password);
-                            setBusy(true);
-                            setStatusMessage(null);
-                            try {
-                              const msg = await task;
-                              clearAuthError();
-                              setStatusMessage(msg);
-                            } catch {
-                              // Error state set in AuthContext
-                            } finally {
-                              setBusy(false);
-                            }
-                          }}
-                          className="px-2.5 py-1.5 text-xs font-medium bg-white border border-[#FECACA] text-[#991B1B] hover:bg-[#FEE2E2] rounded-lg transition-colors whitespace-nowrap shrink-0"
-                        >
-                          Google পপআপ দিয়ে সেট করুন
-                        </button>
-                      </div>
                     </div>
                   )}
                 </div>
@@ -970,187 +888,105 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               )}
 
               {authTab === 'google' ? (
-                <div className="space-y-4">
+                <div className="space-y-5 py-2">
                   <button
                     type="button"
                     disabled={busy}
                     onClick={async () => {
-                      const signInTask = loginWithGoogle();
                       setBusy(true);
+                      clearAuthError();
+                      setStatusMessage(null);
                       try {
-                        await signInTask;
+                        await loginWithGoogle();
                       } catch {
                         // Handled in context
                       } finally {
                         setBusy(false);
                       }
                     }}
-                    className="w-full flex items-center justify-center gap-3 px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-[#0E877C] to-[#064E49] hover:opacity-95 disabled:opacity-60 rounded-xl transition-opacity whitespace-nowrap shrink-0"
+                    className="w-full flex items-center justify-center gap-3 px-5 py-3.5 text-sm font-bold text-[#0F172A] bg-white hover:bg-[#F8FAFC] border-2 border-[#CBD5E1] hover:border-[#0D7E74] rounded-2xl shadow-xs transition-all disabled:opacity-60 cursor-pointer"
                   >
-                    <Lock className="w-4 h-4" />
+                    <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                      <path
+                        fill="#4285F4"
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                      />
+                      <path
+                        fill="#EA4335"
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                      />
+                    </svg>
                     <span>
-                      {busy ? 'Authenticating...' : 'Sign In with Verified Google Account'}
+                      {busy
+                        ? t('গুগল অ্যাকাউন্ট যাচাই হচ্ছে...', 'Signing in with Google...')
+                        : t('গুগল দিয়ে এক ক্লিকে সাইনআপ ও লগইন', 'Continue with Google')}
                     </span>
                   </button>
 
-                  {popupBlocked || showPopupFreePanel || Boolean(emailLinkSentTo) ? (
-                    <div className="p-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl space-y-3">
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold text-[#0F172A]">
-                          পপআপ ছাড়াই সরাসরি ইমেইল লিংক দিয়ে লগইন (No Popup Needed)
-                        </p>
-                        <p className="text-xs text-[#64748B] leading-relaxed">
-                          ব্রাউজারে পপআপ ব্লক থাকলে নিচে আপনার অনুমোদিত ইমেইল (যেমন{' '}
-                          <span className="font-mono text-[#0F172A]">ventegksy@gmail.com</span>) দিয়ে লগইন লিংক পাঠান:
-                        </p>
-                      </div>
-
-                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                        <div className="relative flex-1">
-                          <Mail className="w-4 h-4 text-[#64748B] absolute left-3 top-2.5" />
-                          <input
-                            type="email"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            placeholder="ventegksy@gmail.com"
-                            className="w-full pl-9 pr-3 py-2 text-xs border border-[#E6ECEF] rounded-lg bg-white text-[#0F172A]"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          disabled={busy || !email.trim()}
-                          onClick={async () => {
-                            setBusy(true);
-                            setStatusMessage(null);
-                            try {
-                              const msg = await sendPopupFreeSignInLink(email);
-                              clearAuthError();
-                              setStatusMessage(msg);
-                            } catch {
-                              // Handled in AuthContext
-                            } finally {
-                              setBusy(false);
-                            }
-                          }}
-                          className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-[#0D7E74] hover:bg-[#09635B] disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap shrink-0"
-                        >
-                          <Send className="w-3.5 h-3.5" />
-                          <span>পপআপ ছাড়াই লিংক পাঠান</span>
-                        </button>
-                      </div>
-
-                      {emailLinkSentTo && renderEmailActionVerificationBox(false)}
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <p className="text-xs text-[#64748B] leading-relaxed">
-                        অনুমোদিত অ্যাডমিন অ্যাকাউন্টের জন্য Google Sign-In সবচেয়ে দ্রুত ও নিরাপদ। লগইনের পর চাইলে Staff &amp; Security থেকে Email পাসওয়ার্ডও যুক্ত করতে পারবেন।
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => setShowPopupFreePanel(true)}
-                        className="text-xs font-semibold text-[#0D7E74] hover:underline"
-                      >
-                        পপআপ ব্লক হচ্ছে? পপআপ ছাড়াই ইমেইল লিংক দিয়ে লগইন করুন →
-                      </button>
-                    </div>
-                  )}
+                  <div className="p-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl text-center space-y-1">
+                    <p className="text-xs font-semibold text-[#0F172A]">
+                      {t('গুগল আইডি দিয়ে তাত্ক্ষণিক প্রবেশ', 'Instant Google Access')}
+                    </p>
+                    <p className="text-xs text-[#64748B] leading-relaxed">
+                      {t(
+                        'যেকোনো উদ্যোক্তা তাদের গুগল একাউন্ট নির্বাচন করে ১-ক্লিকেই এডমিন একাউন্ট তৈরি এবং লগইন সম্পন্ন করতে পারবেন। কোনো পাসওয়ার্ডের প্রয়োজন নেই।',
+                        'Any entrepreneur can register or sign in to their pharmacy administrator account instantly with 1-click Google authentication.'
+                      )}
+                    </p>
+                  </div>
                 </div>
-              ) : emailMode === 'reset' ? (
+              ) : (
                 <div className="space-y-4">
-                  <form
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      setBusy(true);
-                      setStatusMessage(null);
-                      try {
-                        const msg = await requestPasswordReset(email);
-                        setStatusMessage(msg);
-                      } catch {
-                        // Handled in context
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                    className="space-y-4"
-                  >
-                    <div>
-                      <label className="block text-xs font-medium text-[#0F172A] mb-1">
-                        Staff / Administrator Email Address
-                      </label>
-                      <div className="relative">
-                        <Mail className="w-4 h-4 text-[#64748B] absolute left-3 top-3" />
-                        <input
-                          type="email"
-                          required
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          placeholder="ventegksy@gmail.com"
-                          className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-[#E6ECEF] rounded-xl"
-                        />
-                      </div>
-                    </div>
-
-                    {emailLinkSentTo && (
-                      <div>
-                        <label className="block text-xs font-medium text-[#0F172A] mb-1">
-                          New Password (যদি নিচে রিসেট লিংক পেস্ট করে এই স্ক্রিনেই সেট করতে চান)
-                        </label>
-                        <div className="relative">
-                          <KeyRound className="w-4 h-4 text-[#64748B] absolute left-3 top-3" />
-                          <input
-                            type="password"
-                            minLength={6}
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            placeholder="Enter 6+ character new password"
-                            className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-[#E6ECEF] rounded-xl"
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between gap-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEmailMode('signin');
-                          clearAuthError();
-                        }}
-                        className="text-xs font-medium text-[#64748B] hover:text-[#0F172A] whitespace-nowrap shrink-0"
-                      >
-                        Back to Sign In
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={busy}
-                        className="px-4 py-2.5 text-sm font-semibold text-white bg-[#0D7E74] hover:bg-[#09635B] disabled:opacity-60 rounded-xl transition-colors whitespace-nowrap shrink-0"
-                      >
-                        {busy ? 'Sending...' : 'Send Password Setup / Reset Link'}
-                      </button>
-                    </div>
-                  </form>
-
-                  {emailLinkSentTo && renderEmailActionVerificationBox(true)}
-                </div>
-              ) : emailMode === 'setup' ? (
-                <div className="space-y-4">
-                  <div className="p-3 bg-[#F8FAFC] border border-[#E6ECEF] rounded-xl text-xs text-[#475569] leading-relaxed">
-                    আপনার ইমেইল ও নতুন পাসওয়ার্ড লিখে নিচে ক্লিক করুন—কোনো পপআপ ছাড়াই নতুন অ্যাকাউন্ট তৈরি হবে অথবা বিদ্যমান Gmail অ্যাকাউন্টে ইমেইল লিংকের মাধ্যমে পাসওয়ার্ড যুক্ত হবে।
+                  <div className="flex items-center justify-between border-b border-[#EEF2F6] pb-2">
+                    <button
+                      type="button"
+                      onClick={() => setEmailMode('signin')}
+                      className={`text-xs font-bold pb-1 border-b-2 transition-colors ${
+                        emailMode === 'signin'
+                          ? 'border-[#0D7E74] text-[#0D7E74]'
+                          : 'border-transparent text-[#64748B]'
+                      }`}
+                    >
+                      {t('লগইন করুন', 'Sign In')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEmailMode('setup')}
+                      className={`text-xs font-bold pb-1 border-b-2 transition-colors ${
+                        emailMode === 'setup'
+                          ? 'border-[#0D7E74] text-[#0D7E74]'
+                          : 'border-transparent text-[#64748B]'
+                      }`}
+                    >
+                      {t('নতুন সাইনআপ / পাসওয়ার্ড তৈরি', 'Create Account / Setup')}
+                    </button>
                   </div>
 
                   <form
                     onSubmit={async (e) => {
                       e.preventDefault();
                       setBusy(true);
+                      clearAuthError();
                       setStatusMessage(null);
                       try {
-                        const result = await setupPasswordOrSendEmailLink(
-                          email,
-                          password,
-                          setupDisplayName
-                        );
-                        setStatusMessage(result.message);
+                        if (emailMode === 'signin') {
+                          await loginWithEmailPassword(email, password);
+                        } else {
+                          const result = await setupPasswordOrSendEmailLink(
+                            email,
+                            password,
+                            setupDisplayName
+                          );
+                          setStatusMessage(result.message);
+                        }
                       } catch {
                         // Handled in context
                       } finally {
@@ -1159,164 +995,71 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                     }}
                     className="space-y-3.5"
                   >
-                    <div>
-                      <label className="block text-xs font-medium text-[#0F172A] mb-1">
-                        Full Name (Optional)
-                      </label>
-                      <input
-                        type="text"
-                        maxLength={120}
-                        value={setupDisplayName}
-                        onChange={(e) => setSetupDisplayName(e.target.value)}
-                        placeholder="Administrator / Pharmacist Name"
-                        className="w-full px-3.5 py-2.5 text-sm border border-[#E6ECEF] rounded-xl"
-                      />
-                    </div>
+                    {emailMode === 'setup' && (
+                      <div>
+                        <label className="block text-xs font-semibold text-[#0F172A] mb-1">
+                          {t('আপনার নাম', 'Full Name')}
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={120}
+                          value={setupDisplayName}
+                          onChange={(e) => setSetupDisplayName(e.target.value)}
+                          placeholder="e.g. Chief Administrator"
+                          className="w-full px-3.5 py-2.5 text-xs border border-[#E6ECEF] rounded-xl focus:outline-none focus:border-[#0D7E74]"
+                        />
+                      </div>
+                    )}
 
                     <div>
-                      <label className="block text-xs font-medium text-[#0F172A] mb-1">
-                        Staff / Admin Email
+                      <label className="block text-xs font-semibold text-[#0F172A] mb-1">
+                        {t('ইমেইল ঠিকানা', 'Email Address')} *
                       </label>
                       <div className="relative">
-                        <Mail className="w-4 h-4 text-[#64748B] absolute left-3 top-3" />
+                        <Mail className="w-4 h-4 text-[#64748B] absolute left-3 top-2.5" />
                         <input
                           type="email"
                           required
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
-                          placeholder="ventegksy@gmail.com"
-                          className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-[#E6ECEF] rounded-xl"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-[#0F172A] mb-1">
-                        New Password (কমপক্ষে ৬ অক্ষর)
-                      </label>
-                      <div className="relative">
-                        <KeyRound className="w-4 h-4 text-[#64748B] absolute left-3 top-3" />
-                        <input
-                          type="password"
-                          required
-                          minLength={6}
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          placeholder="Create 6+ character password"
-                          className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-[#E6ECEF] rounded-xl"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 pt-1">
-                      <button
-                        type="submit"
-                        disabled={busy}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-[#0E877C] to-[#064E49] hover:opacity-95 disabled:opacity-60 rounded-xl transition-opacity"
-                      >
-                        <Send className="w-4 h-4 shrink-0" />
-                        <span>
-                          {busy
-                            ? 'Processing...'
-                            : 'পপআপ ছাড়াই পাসওয়ার্ড সেট ও লগইন করুন'}
-                        </span>
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={async () => {
-                          const task = linkPasswordViaGoogle(email, password);
-                          setBusy(true);
-                          setStatusMessage(null);
-                          try {
-                            const msg = await task;
-                            setStatusMessage(msg);
-                          } catch {
-                            // Handled in context
-                          } finally {
-                            setBusy(false);
-                          }
-                        }}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold text-[#0F172A] bg-white border border-[#E6ECEF] hover:bg-[#F8FAFC] disabled:opacity-60 rounded-xl transition-colors"
-                      >
-                        <Lock className="w-3.5 h-3.5 shrink-0" />
-                        <span>Google পপআপ দিয়ে যাচাই করে পাসওয়ার্ড সেট করুন</span>
-                      </button>
-                    </div>
-
-                    <div className="pt-1 text-center">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEmailMode('signin');
-                          clearAuthError();
-                        }}
-                        className="text-xs font-medium text-[#64748B] hover:text-[#0F172A]"
-                      >
-                        Back to Email Sign In
-                      </button>
-                    </div>
-                  </form>
-
-                  {emailLinkSentTo && renderEmailActionVerificationBox(true)}
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <form
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      setBusy(true);
-                      try {
-                        await loginWithEmailPassword(email, password);
-                      } catch {
-                        // Handled in context
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                    className="space-y-4"
-                  >
-                    <div>
-                      <label className="block text-xs font-medium text-[#0F172A] mb-1">
-                        Staff Email
-                      </label>
-                      <div className="relative">
-                        <Mail className="w-4 h-4 text-[#64748B] absolute left-3 top-3" />
-                        <input
-                          type="email"
-                          required
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          placeholder="ventegksy@gmail.com"
-                          className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-[#E6ECEF] rounded-xl"
+                          placeholder="admin@yourpharmacy.com"
+                          className="w-full pl-9 pr-3.5 py-2.5 text-xs border border-[#E6ECEF] rounded-xl focus:outline-none focus:border-[#0D7E74]"
                         />
                       </div>
                     </div>
 
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <label className="text-xs font-medium text-[#0F172A]">Password</label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEmailMode('reset');
-                            clearAuthError();
-                          }}
-                          className="text-xs font-medium text-[#0D7E74] hover:underline whitespace-nowrap shrink-0"
-                        >
-                          Reset Password
-                        </button>
+                        <label className="text-xs font-semibold text-[#0F172A]">
+                          {t('পাসওয়ার্ড', 'Password')} *
+                        </label>
+                        {emailMode === 'signin' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEmailMode('reset');
+                              clearAuthError();
+                            }}
+                            className="text-xs font-medium text-[#0D7E74] hover:underline"
+                          >
+                            {t('পাসওয়ার্ড ভুলে গেছেন?', 'Forgot Password?')}
+                          </button>
+                        )}
                       </div>
                       <div className="relative">
-                        <KeyRound className="w-4 h-4 text-[#64748B] absolute left-3 top-3" />
+                        <KeyRound className="w-4 h-4 text-[#64748B] absolute left-3 top-2.5" />
                         <input
                           type="password"
                           required
+                          minLength={6}
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
-                          placeholder="Enter staff password"
-                          className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-[#E6ECEF] rounded-xl"
+                          placeholder={
+                            emailMode === 'setup'
+                              ? t('কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড', 'At least 6 characters')
+                              : t('আপনার পাসওয়ার্ড লিখুন', 'Enter password')
+                          }
+                          className="w-full pl-9 pr-3.5 py-2.5 text-xs border border-[#E6ECEF] rounded-xl focus:outline-none focus:border-[#0D7E74]"
                         />
                       </div>
                     </div>
@@ -1324,28 +1067,15 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                     <button
                       type="submit"
                       disabled={busy}
-                      className="w-full px-4 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-[#0E877C] to-[#064E49] hover:opacity-95 disabled:opacity-60 rounded-xl transition-opacity whitespace-nowrap shrink-0"
+                      className="w-full px-4 py-3 text-xs font-bold text-white bg-gradient-to-r from-[#0E877C] to-[#064E49] hover:opacity-95 disabled:opacity-60 rounded-xl transition-opacity shadow-xs"
                     >
-                      {busy ? 'Signing In...' : 'Sign In with Email'}
+                      {busy
+                        ? t('প্রসেসিং হচ্ছে...', 'Processing...')
+                        : emailMode === 'signin'
+                        ? t('ইমেইল দিয়ে সাইন ইন করুন', 'Sign In with Email')
+                        : t('নতুন অ্যাকাউন্ট রেজিস্টার করুন', 'Register Admin Account')}
                     </button>
-
-                    <div className="pt-1 border-t border-[#EEF2F6] flex items-center justify-between gap-2 text-xs">
-                      <span className="text-[#64748B]">এখনো পাসওয়ার্ড সেট করা নেই?</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEmailMode('setup');
-                          clearAuthError();
-                          setStatusMessage(null);
-                        }}
-                        className="font-semibold text-[#0D7E74] hover:underline whitespace-nowrap shrink-0"
-                      >
-                        Set / Create Password (No Popup)
-                      </button>
-                    </div>
                   </form>
-
-                  {emailLinkSentTo && renderEmailActionVerificationBox(true)}
                 </div>
               )}
             </>
