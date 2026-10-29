@@ -38,6 +38,7 @@ import type {
   AdminAuditLog,
   Category,
   Coupon,
+  CustomPaymentChannel,
   DeliveryZone,
   Order,
   OrderItem,
@@ -2095,8 +2096,15 @@ export interface PaymentGatewayMerchantConfig {
   nagadNumber: string;
   nagadAccountType: 'Merchant Payment' | 'Personal Send Money';
   rocketNumber: string;
+  rocketAccountType: 'Merchant Payment' | 'Personal Send Money';
+  paypalEmail: string;
+  upayNumber: string;
+  upayAccountType: 'Merchant Payment' | 'Personal Send Money';
+  payoneerEmail: string;
+  bankDetails: string;
   codTerms: string;
   checkoutSafetyNotice: string;
+  customChannels: CustomPaymentChannel[];
 }
 
 export function parsePaymentGatewayConfig(
@@ -2108,9 +2116,16 @@ export function parsePaymentGatewayConfig(
     nagadNumber: '',
     nagadAccountType: 'Merchant Payment',
     rocketNumber: '',
+    rocketAccountType: 'Merchant Payment',
+    paypalEmail: '',
+    upayNumber: '',
+    upayAccountType: 'Merchant Payment',
+    payoneerEmail: '',
+    bankDetails: '',
     codTerms: 'ঢাকার ভেতরে ও বাইরে ডেলিভারি ম্যানের কাছে পণ্য বুঝে নগদ পরিশোধযোগ্য (৳1500+ অর্ডারে ফ্রি ডেলিভারি)।',
     checkoutSafetyNotice:
-      'নিরাপদ পেমেন্ট পদ্ধতি: Cash on Delivery (COD), bKash এবং Nagad মার্চেন্ট পেমেন্ট। আপনার গোপন PIN বা OTP কখনো কাউকে জানাবেন না।',
+      'নিরাপদ পেমেন্ট পদ্ধতি: Cash on Delivery (COD), bKash, Nagad, Rocket, Upay, PayPal, Payoneer ও Bank Transfer। আপনার গোপন PIN বা OTP কখনো কাউকে জানাবেন না।',
+    customChannels: [],
   };
 
   if (!rawPolicy || !rawPolicy.trim()) {
@@ -2138,12 +2153,48 @@ export function parsePaymentGatewayConfig(
           m[1].toLowerCase() === 'personal send money' ? 'Personal Send Money' : 'Merchant Payment';
         fallback.nagadNumber = m[2].trim();
       }
+    } else if (line.startsWith('[Rocket ')) {
+      hasStructuredTag = true;
+      const m = line.match(/^\[Rocket\s+(Merchant Payment|Personal Send Money)\]:\s*(.*)$/i);
+      if (m) {
+        fallback.rocketAccountType =
+          m[1].toLowerCase() === 'personal send money' ? 'Personal Send Money' : 'Merchant Payment';
+        fallback.rocketNumber = m[2].trim();
+      }
     } else if (line.startsWith('[Rocket/Alt MFS]:')) {
       hasStructuredTag = true;
       fallback.rocketNumber = line.slice('[Rocket/Alt MFS]:'.length).trim();
+    } else if (line.startsWith('[PayPal]:')) {
+      hasStructuredTag = true;
+      fallback.paypalEmail = line.slice('[PayPal]:'.length).trim();
+    } else if (line.startsWith('[Upay ')) {
+      hasStructuredTag = true;
+      const m = line.match(/^\[Upay\s+(Merchant Payment|Personal Send Money)\]:\s*(.*)$/i);
+      if (m) {
+        fallback.upayAccountType =
+          m[1].toLowerCase() === 'personal send money' ? 'Personal Send Money' : 'Merchant Payment';
+        fallback.upayNumber = m[2].trim();
+      }
+    } else if (line.startsWith('[Payoneer]:')) {
+      hasStructuredTag = true;
+      fallback.payoneerEmail = line.slice('[Payoneer]:'.length).trim();
+    } else if (line.startsWith('[Bank Details]:')) {
+      hasStructuredTag = true;
+      fallback.bankDetails = line.slice('[Bank Details]:'.length).trim();
     } else if (line.startsWith('[COD Policy]:')) {
       hasStructuredTag = true;
       fallback.codTerms = line.slice('[COD Policy]:'.length).trim() || fallback.codTerms;
+    } else if (line.startsWith('[CustomChannels JSON]:')) {
+      hasStructuredTag = true;
+      try {
+        const jsonStr = line.slice('[CustomChannels JSON]:'.length).trim();
+        const parsed = JSON.parse(jsonStr) as CustomPaymentChannel[];
+        if (Array.isArray(parsed)) {
+          fallback.customChannels = parsed;
+        }
+      } catch {
+        // Ignore JSON parse errors
+      }
     } else {
       noticeLines.push(line);
     }
@@ -2174,13 +2225,32 @@ export function serializePaymentGatewayConfig(config: PaymentGatewayMerchantConf
   }
   const cleanRocket = sanitizeText(config.rocketNumber, 40);
   if (cleanRocket) {
-    parts.push(`[Rocket/Alt MFS]: ${cleanRocket}`);
+    parts.push(`[Rocket ${config.rocketAccountType || 'Merchant Payment'}]: ${cleanRocket}`);
+  }
+  const cleanPaypal = sanitizeText(config.paypalEmail, 100);
+  if (cleanPaypal) {
+    parts.push(`[PayPal]: ${cleanPaypal}`);
+  }
+  const cleanUpay = sanitizeText(config.upayNumber, 40);
+  if (cleanUpay) {
+    parts.push(`[Upay ${config.upayAccountType || 'Merchant Payment'}]: ${cleanUpay}`);
+  }
+  const cleanPayoneer = sanitizeText(config.payoneerEmail, 100);
+  if (cleanPayoneer) {
+    parts.push(`[Payoneer]: ${cleanPayoneer}`);
+  }
+  const cleanBank = sanitizeText(config.bankDetails, 300);
+  if (cleanBank) {
+    parts.push(`[Bank Details]: ${cleanBank}`);
   }
   const cleanCod = sanitizeText(config.codTerms, 350);
   if (cleanCod) {
     parts.push(`[COD Policy]: ${cleanCod}`);
   }
-  return parts.join('\n').slice(0, 1500);
+  if (config.customChannels && config.customChannels.length > 0) {
+    parts.push(`[CustomChannels JSON]: ${JSON.stringify(config.customChannels)}`);
+  }
+  return parts.join('\n').slice(0, 3000);
 }
 
 export async function saveSiteSettingsConfig(

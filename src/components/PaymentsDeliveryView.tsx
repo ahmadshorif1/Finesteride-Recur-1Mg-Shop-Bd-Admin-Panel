@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import { useStoreData } from '../context/StoreDataContext';
 import { formatBdt, formatTimestamp } from '../lib/validation';
 import {
@@ -28,7 +29,13 @@ import {
   serializePaymentGatewayConfig,
   type PaymentDecisionType,
 } from '../services/pharmacyService';
-import type { DeliveryZone, Order, PaymentMethod, PaymentStatus } from '../types/pharmacy';
+import type {
+  CustomPaymentChannel,
+  DeliveryZone,
+  Order,
+  PaymentMethod,
+  PaymentStatus,
+} from '../types/pharmacy';
 
 const SUPPORTED_PAYMENT_CHANNELS: Array<{
   id: PaymentMethod;
@@ -61,6 +68,46 @@ const SUPPORTED_PAYMENT_CHANNELS: Array<{
     settlementPolicy:
       'Client-submitted issuer reference enters Pending Verification; verified server-side prior to paid reconciliation.',
   },
+  {
+    id: 'rocket',
+    label: 'Rocket MFS',
+    labelBn: 'রকেট পেমেন্ট',
+    subtitle: 'Dutch-Bangla Bank Rocket mobile banking checkout',
+    settlementPolicy:
+      'Client-submitted Rocket transaction ID verified before marking paid.',
+  },
+  {
+    id: 'paypal',
+    label: 'PayPal Checkout',
+    labelBn: 'পেপাল পেমেন্ট',
+    subtitle: 'International credit/debit card and PayPal balance',
+    settlementPolicy:
+      'Transaction reference verified against PayPal business account activity.',
+  },
+  {
+    id: 'upay',
+    label: 'Upay MFS',
+    labelBn: 'ইউপে পেমেন্ট',
+    subtitle: 'UCB Upay digital financial services channel',
+    settlementPolicy:
+      'Client-submitted Upay transaction ID verified against UCB merchant portal.',
+  },
+  {
+    id: 'payoneer',
+    label: 'Payoneer Transfer',
+    labelBn: 'পিওনার পেমেন্ট',
+    subtitle: 'Payoneer global card / balance payment option',
+    settlementPolicy:
+      'Client-submitted Payoneer transaction reference verified against account activity.',
+  },
+  {
+    id: 'bank_transfer',
+    label: 'Bank Transfer',
+    labelBn: 'ব্যাংক ট্রান্সফার',
+    subtitle: 'Direct EFT / BEFTN / NPSB bank transfer',
+    settlementPolicy:
+      'Client uploads bank deposit slip or reference for manual reconciliation.',
+  },
 ];
 
 type PaymentQueueFilter = 'action_needed' | 'all' | PaymentStatus;
@@ -68,6 +115,9 @@ type PaymentQueueFilter = 'action_needed' | 'all' | PaymentStatus;
 export function PaymentsDeliveryView() {
   const { permissions } = useAuth();
   const { actor, orders, deliveryZones, siteSettings } = useStoreData();
+
+  const { language } = useLanguage();
+  const isBn = language === 'bn';
 
   const [activeTab, setActiveTab] = useState<'gateways' | 'verification' | 'zones'>('gateways');
 
@@ -86,10 +136,33 @@ export function PaymentsDeliveryView() {
     'Merchant Payment' | 'Personal Send Money'
   >(parsedGateway.nagadAccountType);
   const [rocketNumber, setRocketNumber] = useState(parsedGateway.rocketNumber);
+  const [rocketAccountType, setRocketAccountType] = useState<
+    'Merchant Payment' | 'Personal Send Money'
+  >(parsedGateway.rocketAccountType || 'Merchant Payment');
+  const [paypalEmail, setPaypalEmail] = useState(parsedGateway.paypalEmail || '');
+  const [upayNumber, setUpayNumber] = useState(parsedGateway.upayNumber || '');
+  const [upayAccountType, setUpayAccountType] = useState<
+    'Merchant Payment' | 'Personal Send Money'
+  >(parsedGateway.upayAccountType || 'Merchant Payment');
+  const [payoneerEmail, setPayoneerEmail] = useState(parsedGateway.payoneerEmail || '');
+  const [bankDetails, setBankDetails] = useState(parsedGateway.bankDetails || '');
   const [codTerms, setCodTerms] = useState(parsedGateway.codTerms);
   const [checkoutSafetyNotice, setCheckoutSafetyNotice] = useState(
     parsedGateway.checkoutSafetyNotice
   );
+  const [customChannels, setCustomChannels] = useState<CustomPaymentChannel[]>(
+    parsedGateway.customChannels || []
+  );
+
+  // Custom Payment Channel Modal State
+  const [customModalOpen, setCustomModalOpen] = useState(false);
+  const [editingCustomChannel, setEditingCustomChannel] = useState<CustomPaymentChannel | null>(null);
+  const [customNameEn, setCustomNameEn] = useState('');
+  const [customNameBn, setCustomNameBn] = useState('');
+  const [customAccount, setCustomAccount] = useState('');
+  const [customType, setCustomType] = useState('Merchant Account');
+  const [customInstructions, setCustomInstructions] = useState('');
+
   const [savingGatewayForm, setSavingGatewayForm] = useState(false);
 
   useEffect(() => {
@@ -98,8 +171,15 @@ export function PaymentsDeliveryView() {
     setNagadNumber(parsedGateway.nagadNumber);
     setNagadAccountType(parsedGateway.nagadAccountType);
     setRocketNumber(parsedGateway.rocketNumber);
+    setRocketAccountType(parsedGateway.rocketAccountType || 'Merchant Payment');
+    setPaypalEmail(parsedGateway.paypalEmail || '');
+    setUpayNumber(parsedGateway.upayNumber || '');
+    setUpayAccountType(parsedGateway.upayAccountType || 'Merchant Payment');
+    setPayoneerEmail(parsedGateway.payoneerEmail || '');
+    setBankDetails(parsedGateway.bankDetails || '');
     setCodTerms(parsedGateway.codTerms);
     setCheckoutSafetyNotice(parsedGateway.checkoutSafetyNotice);
+    setCustomChannels(parsedGateway.customChannels || []);
   }, [parsedGateway]);
 
   // Payment Verification Queue State
@@ -299,8 +379,15 @@ export function PaymentsDeliveryView() {
         nagadNumber,
         nagadAccountType,
         rocketNumber,
+        rocketAccountType,
+        paypalEmail,
+        upayNumber,
+        upayAccountType,
+        payoneerEmail,
+        bankDetails,
         codTerms,
         checkoutSafetyNotice,
+        customChannels,
       });
 
       await saveSiteSettingsConfig(
@@ -312,12 +399,81 @@ export function PaymentsDeliveryView() {
         },
         Boolean(siteSettings)
       );
-      setSuccessMsg('Saved merchant payment numbers & checkout policy to Customer Storefront.');
+      setSuccessMsg(
+        isBn
+          ? 'সকল পেমেন্ট গেটওয়ে অ্যাকাউন্ট নম্বর ও নীতি সফলভাবে সংরক্ষিত হয়েছে।'
+          : 'Saved merchant payment accounts & checkout policy to Customer Storefront.'
+      );
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Failed to save merchant payment settings.');
     } finally {
       setSavingGatewayForm(false);
     }
+  };
+
+  const openAddCustomChannel = () => {
+    setEditingCustomChannel(null);
+    setCustomNameEn('');
+    setCustomNameBn('');
+    setCustomAccount('');
+    setCustomType('Merchant Account');
+    setCustomInstructions('');
+    setCustomModalOpen(true);
+  };
+
+  const openEditCustomChannel = (channel: CustomPaymentChannel) => {
+    setEditingCustomChannel(channel);
+    setCustomNameEn(channel.name);
+    setCustomNameBn(channel.nameBn);
+    setCustomAccount(channel.accountNumber);
+    setCustomType(channel.accountType);
+    setCustomInstructions(channel.instructions);
+    setCustomModalOpen(true);
+  };
+
+  const handleSaveCustomChannel = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customNameEn.trim() && !customNameBn.trim()) {
+      setErrorMsg(isBn ? 'পেমেন্ট চ্যানেলের নাম আবশ্যক।' : 'Payment channel name is required.');
+      return;
+    }
+
+    const newChannel: CustomPaymentChannel = {
+      id: editingCustomChannel?.id || `custom_${Date.now()}`,
+      name: customNameEn.trim() || customNameBn.trim(),
+      nameBn: customNameBn.trim() || customNameEn.trim(),
+      accountNumber: customAccount.trim(),
+      accountType: customType.trim() || 'Merchant Account',
+      instructions: customInstructions.trim(),
+      enabled: editingCustomChannel ? editingCustomChannel.enabled : true,
+    };
+
+    let updatedList: CustomPaymentChannel[];
+    if (editingCustomChannel) {
+      updatedList = customChannels.map((c) => (c.id === newChannel.id ? newChannel : c));
+    } else {
+      updatedList = [...customChannels, newChannel];
+    }
+
+    setCustomChannels(updatedList);
+    setCustomModalOpen(false);
+    setSuccessMsg(
+      isBn
+        ? `কাস্টম পেমেন্ট অপশন "${newChannel.nameBn}" যোগ করা হয়েছে। স্থায়ীভাবে সংরক্ষণের জন্য সংরক্ষণ বাটনে ক্লিক করুন।`
+        : `Custom payment option "${newChannel.name}" added. Click Save Merchant Payment Settings to persist.`
+    );
+  };
+
+  const handleToggleCustomChannelStatus = (id: string) => {
+    const updated = customChannels.map((c) =>
+      c.id === id ? { ...c, enabled: !c.enabled } : c
+    );
+    setCustomChannels(updated);
+  };
+
+  const handleDeleteCustomChannel = (id: string) => {
+    const updated = customChannels.filter((c) => c.id !== id);
+    setCustomChannels(updated);
   };
 
   const handleSyncDefaultPaymentsAndZones = async () => {
@@ -790,10 +946,11 @@ export function PaymentsDeliveryView() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2 border border-[#EEF2F6] rounded-lg p-3.5 bg-[#FAFCFC]">
-                <label className="block text-xs font-semibold text-[#0F172A]">
-                  bKash Account Number (বিকাশ নম্বর)
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* bKash */}
+              <div className="space-y-2 border border-[#EEF2F6] rounded-xl p-4 bg-[#FAFCFC]">
+                <label className="block text-xs font-bold text-[#0F172A]">
+                  bKash Number (বিকাশ নম্বর)
                 </label>
                 <input
                   type="text"
@@ -818,9 +975,10 @@ export function PaymentsDeliveryView() {
                 </select>
               </div>
 
-              <div className="space-y-2 border border-[#EEF2F6] rounded-lg p-3.5 bg-[#FAFCFC]">
-                <label className="block text-xs font-semibold text-[#0F172A]">
-                  Nagad Account Number (নগদ নম্বর)
+              {/* Nagad */}
+              <div className="space-y-2 border border-[#EEF2F6] rounded-xl p-4 bg-[#FAFCFC]">
+                <label className="block text-xs font-bold text-[#0F172A]">
+                  Nagad Number (নগদ নম্বর)
                 </label>
                 <input
                   type="text"
@@ -845,24 +1003,115 @@ export function PaymentsDeliveryView() {
                 </select>
               </div>
 
-              <div className="space-y-2 border border-[#EEF2F6] rounded-lg p-3.5 bg-[#FAFCFC]">
-                <label className="block text-xs font-semibold text-[#0F172A]">
-                  Optional Helpline / Alternative MFS (রকেট / হেল্পলাইন)
+              {/* Rocket */}
+              <div className="space-y-2 border border-[#EEF2F6] rounded-xl p-4 bg-[#FAFCFC]">
+                <label className="block text-xs font-bold text-[#0F172A]">
+                  Rocket Number (রকেট নম্বর)
                 </label>
                 <input
                   type="text"
                   disabled={!permissions?.canManageCms}
                   value={rocketNumber}
                   onChange={(e) => setRocketNumber(e.target.value)}
-                  placeholder="Optional Rocket / Billing Support #"
+                  placeholder="e.g., 017XX-XXXXXX-X"
                   className="w-full px-3 py-2 text-xs font-mono border border-[#E6ECEF] rounded-lg bg-white focus:outline-none focus:border-[#0D7E74]"
                 />
-                <p className="text-[11px] text-[#64748B] leading-snug pt-0.5">
-                  Shown inside customer payment instructions if customers need assisted billing support.
+                <select
+                  disabled={!permissions?.canManageCms}
+                  value={rocketAccountType}
+                  onChange={(e) =>
+                    setRocketAccountType(
+                      e.target.value as 'Merchant Payment' | 'Personal Send Money'
+                    )
+                  }
+                  className="w-full px-2.5 py-1.5 text-xs border border-[#E6ECEF] rounded-lg bg-white"
+                >
+                  <option value="Merchant Payment">Merchant Payment (Make Payment)</option>
+                  <option value="Personal Send Money">Personal Account (Send Money)</option>
+                </select>
+              </div>
+
+              {/* Upay */}
+              <div className="space-y-2 border border-[#EEF2F6] rounded-xl p-4 bg-[#FAFCFC]">
+                <label className="block text-xs font-bold text-[#0F172A]">
+                  Upay Number (ইউপে নম্বর)
+                </label>
+                <input
+                  type="text"
+                  disabled={!permissions?.canManageCms}
+                  value={upayNumber}
+                  onChange={(e) => setUpayNumber(e.target.value)}
+                  placeholder="e.g., 019XX-XXXXXX"
+                  className="w-full px-3 py-2 text-xs font-mono border border-[#E6ECEF] rounded-lg bg-white focus:outline-none focus:border-[#0D7E74]"
+                />
+                <select
+                  disabled={!permissions?.canManageCms}
+                  value={upayAccountType}
+                  onChange={(e) =>
+                    setUpayAccountType(
+                      e.target.value as 'Merchant Payment' | 'Personal Send Money'
+                    )
+                  }
+                  className="w-full px-2.5 py-1.5 text-xs border border-[#E6ECEF] rounded-lg bg-white"
+                >
+                  <option value="Merchant Payment">Merchant Payment (Make Payment)</option>
+                  <option value="Personal Send Money">Personal Account (Send Money)</option>
+                </select>
+              </div>
+
+              {/* PayPal */}
+              <div className="space-y-2 border border-[#EEF2F6] rounded-xl p-4 bg-[#FAFCFC]">
+                <label className="block text-xs font-bold text-[#0F172A]">
+                  PayPal Email (পেপাল ইমেইল)
+                </label>
+                <input
+                  type="email"
+                  disabled={!permissions?.canManageCms}
+                  value={paypalEmail}
+                  onChange={(e) => setPaypalEmail(e.target.value)}
+                  placeholder="billing@yourpharmacy.com"
+                  className="w-full px-3 py-2 text-xs font-mono border border-[#E6ECEF] rounded-lg bg-white focus:outline-none focus:border-[#0D7E74]"
+                />
+                <p className="text-[11px] text-[#64748B] pt-0.5">
+                  International credit/debit card and PayPal account payments.
+                </p>
+              </div>
+
+              {/* Payoneer */}
+              <div className="space-y-2 border border-[#EEF2F6] rounded-xl p-4 bg-[#FAFCFC]">
+                <label className="block text-xs font-bold text-[#0F172A]">
+                  Payoneer Email (পিওনার ইমেইল)
+                </label>
+                <input
+                  type="email"
+                  disabled={!permissions?.canManageCms}
+                  value={payoneerEmail}
+                  onChange={(e) => setPayoneerEmail(e.target.value)}
+                  placeholder="payments@yourpharmacy.com"
+                  className="w-full px-3 py-2 text-xs font-mono border border-[#E6ECEF] rounded-lg bg-white focus:outline-none focus:border-[#0D7E74]"
+                />
+                <p className="text-[11px] text-[#64748B] pt-0.5">
+                  Direct Payoneer balance transfer or global card checkout.
                 </p>
               </div>
             </div>
 
+            {/* Bank Transfer Details */}
+            <div className="space-y-2 border border-[#EEF2F6] rounded-xl p-4 bg-[#FAFCFC]">
+              <label className="block text-xs font-bold text-[#0F172A]">
+                Bank Transfer Details (ব্যাংক একাউন্ট বিবরণী)
+              </label>
+              <textarea
+                rows={2}
+                disabled={!permissions?.canManageCms}
+                value={bankDetails}
+                onChange={(e) => setBankDetails(e.target.value)}
+                placeholder="Bank Name: Dutch-Bangla Bank | A/C: 123.456.789 | Branch: Dhanmondi | Routing: 12345678"
+                className="w-full px-3 py-2 text-xs font-mono border border-[#E6ECEF] rounded-lg focus:outline-none focus:border-[#0D7E74] bg-white"
+              />
+            </div>
+
+            {/* Terms & Notices */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-[#0F172A] mb-1">
@@ -891,6 +1140,99 @@ export function PaymentsDeliveryView() {
               </div>
             </div>
 
+            {/* Custom Payment Channels (অতিরিক্ত পেমেন্ট অপশন) Section */}
+            <div className="border border-[#EEF2F6] rounded-xl p-4 bg-[#F8FAFB] space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-xs font-bold text-[#0F172A] uppercase tracking-wider">
+                    {isBn ? 'অতিরিক্ত কাস্টম পেমেন্ট অপশনসমূহ' : 'Additional Custom Payment Options'}
+                  </h3>
+                  <p className="text-xs text-[#64748B]">
+                    {isBn
+                      ? 'অ্যাডমিন যেকোনো নতুন পেমেন্ট গেটওয়ে চ্যানেল যুক্ত করতে পারবেন।'
+                      : 'Admin can create and configure extra custom payment channels.'}
+                  </p>
+                </div>
+                {permissions?.canManageCms && (
+                  <button
+                    type="button"
+                    onClick={openAddCustomChannel}
+                    className="px-3 py-1.5 text-xs font-bold text-[#0D7E74] bg-white border border-[#0D7E74] hover:bg-[#F0FDFA] rounded-lg transition-colors flex items-center gap-1 shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{isBn ? 'অতিরিক্ত পেমেন্ট অপশন যুক্ত করুন' : 'Add Custom Payment Option'}</span>
+                  </button>
+                )}
+              </div>
+
+              {customChannels.length === 0 ? (
+                <p className="text-xs text-[#64748B] italic">
+                  {isBn
+                    ? 'কোনো অতিরিক্ত পেমেন্ট চ্যানেল যুক্ত করা হয়নি। উপরের বাটনে ক্লিক করে যুক্ত করুন।'
+                    : 'No custom payment options added yet. Click above to add.'}
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {customChannels.map((chan) => (
+                    <div
+                      key={chan.id}
+                      className="p-3 bg-white border border-[#E6ECEF] rounded-xl space-y-1 text-xs"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-[#0F172A]">
+                          {isBn ? chan.nameBn : chan.name}
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 text-[10px] font-bold rounded-md ${
+                            chan.enabled
+                              ? 'bg-[#DCFCE7] text-[#15803D]'
+                              : 'bg-[#F1F5F9] text-[#64748B]'
+                          }`}
+                        >
+                          {chan.enabled ? (isBn ? 'সক্রিয়' : 'Active') : (isBn ? 'নিষ্ক্রিয়' : 'Disabled')}
+                        </span>
+                      </div>
+                      <div className="font-mono text-[11px] text-[#475569]">
+                        {chan.accountNumber} ({chan.accountType})
+                      </div>
+                      {chan.instructions && (
+                        <p className="text-[11px] text-[#64748B] line-clamp-1">
+                          {chan.instructions}
+                        </p>
+                      )}
+                      {permissions?.canManageCms && (
+                        <div className="flex items-center gap-2 pt-1 border-t border-[#F1F5F9] mt-2">
+                          <button
+                            type="button"
+                            onClick={() => openEditCustomChannel(chan)}
+                            className="text-[#0D7E74] hover:underline font-medium flex items-center gap-1"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                            <span>{isBn ? 'সম্পাদনা' : 'Edit'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleCustomChannelStatus(chan.id)}
+                            className="text-[#475569] hover:underline font-medium"
+                          >
+                            {chan.enabled ? (isBn ? 'বন্ধ করুন' : 'Disable') : (isBn ? 'চালু করুন' : 'Enable')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCustomChannel(chan.id)}
+                            className="text-[#DC2626] hover:underline font-medium flex items-center gap-1 ml-auto"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>{isBn ? 'মুছে ফেলুন' : 'Delete'}</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {permissions?.canManageCms && (
               <div className="flex justify-end pt-2 border-t border-[#EEF2F6]">
                 <button
@@ -899,8 +1241,8 @@ export function PaymentsDeliveryView() {
                   className="px-5 py-2.5 text-sm font-medium text-white bg-[#0D7E74] hover:bg-[#086058] disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap shrink-0"
                 >
                   {savingGatewayForm
-                    ? 'Saving Payment Configuration...'
-                    : 'Save Merchant Payment Settings'}
+                    ? (isBn ? 'সংরক্ষণ করা হচ্ছে...' : 'Saving Payment Configuration...')
+                    : (isBn ? 'সকল পেমেন্ট গেটওয়ে নম্বর ও সেটিংস সংরক্ষণ করুন' : 'Save Merchant Payment Settings')}
                 </button>
               </div>
             )}
@@ -1558,6 +1900,117 @@ export function PaymentsDeliveryView() {
                   className="px-4 py-2 text-sm font-medium text-white bg-[#0D7E74] hover:bg-[#086058] disabled:opacity-50 rounded-lg whitespace-nowrap shrink-0"
                 >
                   {savingZone ? 'Saving...' : editingZone ? 'Update Zone' : 'Create Zone'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add / Edit Custom Payment Channel Modal */}
+      {customModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-[#0F172A]/40 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white border border-[#E6ECEF] rounded-2xl max-w-md w-full overflow-hidden shadow-xl">
+            <div className="px-6 py-4 border-b border-[#EEF2F6] flex items-center justify-between">
+              <h2 className="text-base font-bold text-[#0F172A]">
+                {editingCustomChannel
+                  ? (isBn ? 'কাস্টম পেমেন্ট অপশন সম্পাদনা' : 'Edit Custom Payment Option')
+                  : (isBn ? 'অতিরিক্ত পেমেন্ট অপশন যুক্ত করুন' : 'Add Custom Payment Option')}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setCustomModalOpen(false)}
+                className="p-1.5 text-[#64748B] hover:text-[#0F172A] rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveCustomChannel} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#0F172A] mb-1">
+                  {isBn ? 'পেমেন্ট চ্যানেলের নাম (English) *' : 'Payment Channel Name (English) *'}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={customNameEn}
+                  onChange={(e) => setCustomNameEn(e.target.value)}
+                  placeholder="e.g., Tap MFS / City Bank QR"
+                  className="w-full px-3 py-2 text-xs border border-[#E6ECEF] rounded-lg focus:outline-none focus:border-[#0D7E74]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#0F172A] mb-1">
+                  {isBn ? 'পেমেন্ট চ্যানেলের নাম (বাংলা) *' : 'Payment Channel Name (Bangla) *'}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={customNameBn}
+                  onChange={(e) => setCustomNameBn(e.target.value)}
+                  placeholder="যেমন: ট্যাপ পেমেন্ট / সিটি ব্যাংক কিউআর"
+                  className="w-full px-3 py-2 text-xs border border-[#E6ECEF] rounded-lg focus:outline-none focus:border-[#0D7E74]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#0F172A] mb-1">
+                  {isBn ? 'একাউন্ট / মার্চেন্ট নম্বর / আইডি' : 'Account / Merchant Number / ID'}
+                </label>
+                <input
+                  type="text"
+                  value={customAccount}
+                  onChange={(e) => setCustomAccount(e.target.value)}
+                  placeholder="e.g., 01700-000000 / Merchant ID 8839"
+                  className="w-full px-3 py-2 text-xs font-mono border border-[#E6ECEF] rounded-lg focus:outline-none focus:border-[#0D7E74]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#0F172A] mb-1">
+                  {isBn ? 'একাউন্ট টাইপ' : 'Account Type'}
+                </label>
+                <input
+                  type="text"
+                  value={customType}
+                  onChange={(e) => setCustomType(e.target.value)}
+                  placeholder="e.g., Merchant Account / Personal / Wallet"
+                  className="w-full px-3 py-2 text-xs border border-[#E6ECEF] rounded-lg focus:outline-none focus:border-[#0D7E74]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#0F172A] mb-1">
+                  {isBn ? 'গ্রাহকদের জন্য পেমেন্ট নির্দেশিকা' : 'Payment Instructions for Customers'}
+                </label>
+                <textarea
+                  rows={2}
+                  value={customInstructions}
+                  onChange={(e) => setCustomInstructions(e.target.value)}
+                  placeholder="e.g., Send money or scan QR code and enter TrxID."
+                  className="w-full px-3 py-2 text-xs border border-[#E6ECEF] rounded-lg focus:outline-none focus:border-[#0D7E74]"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-[#EEF2F6] flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setCustomModalOpen(false)}
+                  className="px-4 py-2 text-xs font-medium text-[#64748B] hover:text-[#0F172A] border border-[#E6ECEF] rounded-lg"
+                >
+                  {isBn ? 'বাতিল' : 'Cancel'}
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-xs font-bold text-white bg-[#0D7E74] hover:bg-[#086058] rounded-lg"
+                >
+                  {isBn ? 'সংরক্ষণ করুন' : 'Save Channel'}
                 </button>
               </div>
             </form>

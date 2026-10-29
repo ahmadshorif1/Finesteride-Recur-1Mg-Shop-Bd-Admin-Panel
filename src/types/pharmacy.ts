@@ -339,7 +339,27 @@ export type OrderStatus =
   | 'refund_pending'
   | 'refunded';
 
-export type PaymentMethod = 'cod' | 'bkash' | 'nagad';
+export type PaymentMethod =
+  | 'cod'
+  | 'bkash'
+  | 'nagad'
+  | 'rocket'
+  | 'paypal'
+  | 'upay'
+  | 'payoneer'
+  | 'bank_transfer'
+  | 'custom'
+  | string;
+
+export interface CustomPaymentChannel {
+  id: string;
+  name: string;
+  nameBn: string;
+  accountNumber: string;
+  accountType: string;
+  instructions: string;
+  enabled: boolean;
+}
 
 export type PaymentStatus =
   | 'unpaid'
