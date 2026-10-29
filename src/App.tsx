@@ -124,6 +124,7 @@ const NAV_ITEMS: NavItemConfig[] = [
 
 function AdminWorkspaceShell() {
   const { user, effectiveRole, staffProfile, logoutAdmin } = useAuth();
+  const { language, toggleLanguage, t } = useLanguage();
   const {
     products,
     productBatches,
@@ -527,13 +528,13 @@ function AdminWorkspaceShell() {
             <button
               type="button"
               onClick={() => setAiModalOpen(true)}
-              title="AI Stock Alerts (AI নোটিফিকেশন)"
+              title={t('AI স্টক অ্যালার্ট (AI নোটিফিকেশন)', 'AI Stock Alerts & Notifications')}
               aria-label="AI Stock Notifications"
               className="relative px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#0E877C] to-[#064E49] hover:opacity-95 text-white text-xs font-bold flex items-center gap-1.5 transition-opacity shadow-xs shrink-0"
             >
               <Bot className="w-4 h-4 text-[#6EE7B7]" />
               <span className="hidden sm:inline">
-                AI নোটিফিকেশন
+                {t('AI নোটিফিকেশন', 'AI Alerts')}
               </span>
               <Sparkles className="w-3 h-3 text-[#FDE047]" />
               {inventoryAlertCount > 0 && (

@@ -29,6 +29,7 @@ import {
   YAxis,
 } from 'recharts';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import { useStoreData } from '../context/StoreDataContext';
 import { daysUntilExpiry, formatBdt, formatTimestamp } from '../lib/validation';
 import {
@@ -86,6 +87,7 @@ function MiniSparkline({ values, color }: { values: number[]; color: string }) {
 
 export function OverviewView({ onNavigate }: OverviewProps) {
   const { user, staffProfile, permissions } = useAuth();
+  const { t, language } = useLanguage();
   const {
     loading,
     syncError,
@@ -579,7 +581,7 @@ export function OverviewView({ onNavigate }: OverviewProps) {
           <div className="space-y-0.5 min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-[#0F172A] tracking-tight">
-                AI Stock Assistant (AI ইনভেন্টরি পূর্বাভাস)
+                {t('AI ইনভেন্টরি পূর্বাভাস ও অ্যালার্ট', 'AI Proactive Stock Assistant')}
               </span>
               <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#0D7E74]/15 text-[#0D7E74]">
                 <Sparkles className="w-3 h-3 text-[#D97706]" />
@@ -588,8 +590,14 @@ export function OverviewView({ onNavigate }: OverviewProps) {
             </div>
             <p className="text-xs text-[#334155] leading-relaxed truncate">
               {productMetrics.lowStock + productMetrics.outOfStock > 0
-                ? `${productMetrics.lowStock + productMetrics.outOfStock}টি পণ্যের স্টক ফুরিয়ে আসার পূর্বাভাস রয়েছে! স্টক শেষ হওয়ার আগেই সতর্ক হতে বিশ্লেষণ দেখুন।`
-                : 'সকল ওষুধের স্টক ও ব্যাচ মেয়াদ নিরাপদ পর্যায়ে আছে। AI প্রতিনিয়ত স্টক পূর্বাভাস পর্যবেক্ষণ করছে।'}
+                ? t(
+                    `${productMetrics.lowStock + productMetrics.outOfStock}টি পণ্যের স্টক ফুরিয়ে আসার পূর্বাভাস রয়েছে! স্টক শেষ হওয়ার আগেই সতর্ক হতে বিশ্লেষণ দেখুন।`,
+                    `${productMetrics.lowStock + productMetrics.outOfStock} product(s) predicted to run out soon. Review AI reorder analysis before stock depletion.`
+                  )
+                : t(
+                    'সকল ওষুধের স্টক ও ব্যাচ মেয়াদ নিরাপদ পর্যায়ে আছে। AI প্রতিনিয়ত স্টক পূর্বাভাস পর্যবেক্ষণ করছে।',
+                    'All medicine stock & batch expiry dates are nominal. AI continually monitors depletion risk.'
+                  )}
             </p>
           </div>
         </div>

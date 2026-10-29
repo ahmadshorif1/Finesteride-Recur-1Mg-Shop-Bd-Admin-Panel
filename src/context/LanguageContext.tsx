@@ -19,7 +19,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       const saved = window.localStorage.getItem(STORAGE_KEY);
       if (saved === 'bn' || saved === 'en') return saved;
     }
-    return 'bn'; // Default to Bangla as requested
+    return 'en'; // Default to English as requested
   });
 
   const setLanguage = (lang: Language) => {
