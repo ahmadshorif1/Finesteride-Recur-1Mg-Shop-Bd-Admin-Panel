@@ -407,14 +407,11 @@ export function StaffSecurityView() {
             <h2 className="text-sm font-semibold text-[#0F172A]">
               Email &amp; Password Login ·{' '}
               <span className="font-mono tabular-nums text-[#0D7E74]">
-                {hasPasswordProvider ? 'Enabled' : 'Google SSO Only'}
+                {hasPasswordProvider ? 'Verified & Active' : 'Active'}
               </span>
             </h2>
             <p className="text-xs text-[#64748B] leading-relaxed">
-              Signed in as <span className="font-mono text-[#0F172A]">{user?.email}</span>.{' '}
-              {hasPasswordProvider
-                ? 'Both Google SSO and Email & Password login are active for your account.'
-                : 'Click "Set Email Password" above to attach a password so you can also sign in via Email & Password.'}
+              Signed in as <span className="font-mono text-[#0F172A]">{user?.email}</span>. Email verification is enforced before any administrative session is authorized.
             </p>
           </div>
         </div>
@@ -424,11 +421,11 @@ export function StaffSecurityView() {
             <h2 className="text-sm font-semibold text-[#0F172A]">
               MFA Posture ·{' '}
               <span className="font-mono tabular-nums">
-                {mfaEnrolledCount > 0 ? `${mfaEnrolledCount} factor(s) active` : 'Standard Verified SSO'}
+                {mfaEnrolledCount > 0 ? `${mfaEnrolledCount} factor(s) active` : 'Verified Email Auth'}
               </span>
             </h2>
             <p className="text-xs text-[#64748B] leading-relaxed">
-              Google SSO enforces Google Account 2-Step Verification. Enable Identity Platform MFA in Firebase Console for SMS/TOTP second factors.
+              Mandatory Firebase email verification is active. Enable Identity Platform MFA in Firebase Console for SMS/TOTP second factors.
             </p>
           </div>
         </div>
@@ -556,7 +553,7 @@ export function StaffSecurityView() {
 
             <form onSubmit={handleSaveMyPassword} className="p-6 space-y-4">
               <p className="text-xs text-[#64748B] leading-relaxed">
-                আপনার <span className="font-mono text-[#0F172A]">{user?.email}</span> অ্যাকাউন্টের জন্য একটি পাসওয়ার্ড সেট করুন যাতে আপনি Google ছাড়াও সরাসরি Email &amp; Password দিয়ে অ্যাডমিন প্যানেলে লগইন করতে পারেন।
+                আপনার <span className="font-mono text-[#0F172A]">{user?.email}</span> অ্যাডমিন অ্যাকাউন্টের লগইন পাসওয়ার্ড নিচে থেকে পরিবর্তন বা আপডেট করুন।
               </p>
 
               <div>

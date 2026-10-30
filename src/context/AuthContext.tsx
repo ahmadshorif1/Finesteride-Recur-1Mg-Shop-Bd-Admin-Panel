@@ -4,19 +4,12 @@ import {
   confirmPasswordReset,
   createUserWithEmailAndPassword,
   EmailAuthProvider,
-  getRedirectResult,
-  isSignInWithEmailLink,
   linkWithCredential,
   multiFactor,
   onAuthStateChanged,
-  reauthenticateWithPopup,
   sendEmailVerification,
   sendPasswordResetEmail,
-  sendSignInLinkToEmail,
   signInWithEmailAndPassword,
-  signInWithEmailLink,
-  signInWithPopup,
-  signInWithRedirect,
   signOut,
   updatePassword,
   updateProfile,
@@ -28,16 +21,12 @@ import {
   auth,
   db,
   getFirebaseProjectInfo,
-  googleProvider,
   isBootstrappedSuperAdminEmail,
-  popupRedirectResolver,
   SHARED_STORE_ID,
   verifyFirestoreDatabaseProvisioned,
 } from '../lib/firebase';
 import { bootstrapSuperAdminProfile, verifyServerSession } from '../services/pharmacyService';
 import { ROLE_PERMISSIONS, type RolePermissions, type StaffMember, type StaffRole } from '../types/pharmacy';
-
-const PENDING_EMAIL_SIGNIN_STORAGE_KEY = 'pharmacy_admin_pending_signin_email';
 
 interface AuthContextValue {
   user: User | null;
@@ -54,25 +43,13 @@ interface AuthContextValue {
   permissions: RolePermissions | null;
   mfaEnrolledCount: number;
   authError: string | null;
-  popupBlocked: boolean;
-  emailLinkSentTo: string | null;
-  pendingEmailLinkUrl: string | null;
+  pendingResetActionUrl: string | null;
   clearAuthError: () => void;
-  clearEmailLinkFlow: () => void;
-  loginWithGoogle: () => Promise<void>;
-  loginWithGoogleRedirect: () => Promise<void>;
+  clearPendingResetAction: () => void;
   loginWithEmailPassword: (email: string, password: string) => Promise<void>;
   registerWithEmailPassword: (email: string, password: string, displayName?: string) => Promise<string>;
-  linkPasswordViaGoogle: (expectedEmail: string, newPassword: string) => Promise<string>;
-  sendPopupFreeSignInLink: (email: string) => Promise<string>;
-  setupPasswordOrSendEmailLink: (
-    email: string,
-    password: string,
-    displayName?: string
-  ) => Promise<{ status: 'account_created' | 'verification_link_sent'; message: string }>;
   completeFirebaseEmailAction: (
     rawLinkOrCode: string,
-    emailInput?: string,
     newPassword?: string
   ) => Promise<string>;
   setOrUpdateCurrentAccountPassword: (newPassword: string) => Promise<string>;
@@ -144,7 +121,6 @@ function extractFirebaseActionParams(rawInput: string): {
 
     return { cleanUrl, mode, oobCode };
   } catch {
-    // Allow raw oobCode fallback if user pasted only the code token
     const tokenOnly = cleanUrl.replace(/\s+/g, '');
     return {
       cleanUrl: tokenOnly,
@@ -154,7 +130,7 @@ function extractFirebaseActionParams(rawInput: string): {
   }
 }
 
-function formatFirebaseAuthError(err: unknown, mode: 'google' | 'email' | 'reset' | 'link'): string {
+function formatFirebaseAuthError(err: unknown): string {
   const code = (err as { code?: string })?.code || '';
   const { projectId } = getFirebaseProjectInfo();
   const host = typeof window !== 'undefined' ? window.location.hostname : '';
@@ -163,26 +139,12 @@ function formatFirebaseAuthError(err: unknown, mode: 'google' | 'email' | 'reset
     return `Domain "${host}" is not authorized in Firebase project "${projectId}". Open Firebase Console -> Authentication -> Settings -> Authorized domains -> Add domain "${host}".`;
   }
 
-  if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-    return 'Google Sign-In পপআপটি সম্পন্ন হওয়ার আগেই বন্ধ হয়ে গেছে। আবার ক্লিক করুন অথবা নিচে পপআপ ছাড়াই ইমেইল লিংক দিয়ে লগইন করুন।';
-  }
-
-  if (code === 'auth/popup-blocked') {
-    return 'আপনার ব্রাউজার বা প্রিভিউ ফ্রেম Google পপআপ ব্লক করেছে। পপআপ ছাড়াই তাৎক্ষণিক লগইন করতে নিচে আপনার অ্যাডমিন ইমেইল দিয়ে "পপআপ ছাড়াই লগইন লিংক পাঠান" বাটনে ক্লিক করুন, অথবা ব্রাউজারের অ্যাড্রেস বারে পপআপ Allow করুন।';
-  }
-
   if (code === 'auth/operation-not-allowed') {
-    if (mode === 'google') {
-      return `Google Sign-In is disabled in Firebase project "${projectId}". Open Firebase Console -> Authentication -> Sign-in method -> Google -> Enable -> select Support email -> Save.`;
-    }
-    if (mode === 'link') {
-      return `Email Link Sign-In is disabled in Firebase project "${projectId}". Enable "Email link (passwordless sign-in)" under Firebase Console -> Authentication -> Sign-in method -> Email/Password.`;
-    }
     return `Email/Password Sign-In is disabled in Firebase project "${projectId}". Enable Email/Password in Firebase Console -> Authentication -> Sign-in method -> Email/Password -> Enable -> Save.`;
   }
 
   if (code === 'auth/email-already-in-use') {
-    return 'এই ইমেইলটি ইতিমধ্যে নিবন্ধিত আছে (যেমন Google অ্যাকাউন্ট হিসেবে)। নিচে "পপআপ ছাড়াই ইমেইল লিংক দিয়ে পাসওয়ার্ড সেট ও লগইন করুন" বাটনে ক্লিক করলে কোনো পপআপ ছাড়াই এই পাসওয়ার্ডটি আপনার অ্যাকাউন্টে যুক্ত হয়ে যাবে।';
+    return 'এই ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে। অনুগ্রহ করে "লগইন করুন" ট্যাব থেকে পাসওয়ার্ড দিয়ে সাইন ইন করুন, অথবা পাসওয়ার্ড ভুলে গেলে "পাসওয়ার্ড ভুলে গেছেন?" অপশন ব্যবহার করুন।';
   }
 
   if (code === 'auth/weak-password') {
@@ -190,11 +152,11 @@ function formatFirebaseAuthError(err: unknown, mode: 'google' | 'email' | 'reset
   }
 
   if (code === 'auth/invalid-action-code' || code === 'auth/expired-action-code') {
-    return 'এই ইমেইল লিংকটি ইতিমধ্যে ব্যবহৃত হয়েছে অথবা মেয়াদ শেষ হয়েছে। অনুগ্রহ করে নতুন লিংক পাঠিয়ে সর্বশেষ ইমেইলের লিংকটি ব্যবহার করুন।';
+    return 'এই ভেরিফিকেশন বা পাসওয়ার্ড রিসেট লিংকটি ইতিমধ্যে ব্যবহৃত হয়েছে অথবা মেয়াদ শেষ হয়েছে। অনুগ্রহ করে নতুন লিংক পাঠিয়ে সর্বশেষ ইমেইলের লিংকটি ব্যবহার করুন।';
   }
 
   if (code === 'auth/invalid-email') {
-    return 'সঠিক ইমেইল ঠিকানা লিখুন (যে ইমেইলে লিংক পাঠানো হয়েছে ঠিক সেটিই দিন)।';
+    return 'সঠিক ইমেইল ঠিকানা লিখুন। (Please enter a valid email address.)';
   }
 
   if (
@@ -203,14 +165,11 @@ function formatFirebaseAuthError(err: unknown, mode: 'google' | 'email' | 'reset
     code === 'auth/user-not-found' ||
     code === 'auth/invalid-login-credentials'
   ) {
-    if (mode === 'google') {
-      return `Google Sign-In credential was rejected (auth/invalid-credential). Open Firebase Console (${projectId}) -> Authentication -> Sign-in method -> Google, ensure Enable is ON, select a Project support email, and click Save.`;
-    }
-    return 'ইমেইল বা পাসওয়ার্ড মেলেনি (auth/invalid-credential)। Gmail অ্যাকাউন্টে ডিফল্টভাবে আলাদা Firebase পাসওয়ার্ড থাকে না—নিচে "পপআপ ছাড়াই ইমেইল লিংক দিয়ে এই পাসওয়ার্ড সেট ও লগইন করুন" বাটনে ক্লিক করুন, তাহলে কোনো পপআপ ছাড়াই আপনার দেওয়া পাসওয়ার্ডটি চালু হয়ে লগইন সম্পন্ন হবে।';
+    return 'ইমেইল বা পাসওয়ার্ড সঠিক নয়। নতুন অ্যাকাউন্ট তৈরি করতে "নতুন সাইনআপ / রেজিস্ট্রেশন" ট্যাবে যান, অথবা পাসওয়ার্ড রিসেট করতে "পাসওয়ার্ড ভুলে গেছেন?" ক্লিক করুন।';
   }
 
   if (code === 'auth/too-many-requests') {
-    return 'অতিরিক্ত প্রচেষ্টার কারণে সাময়িকভাবে অপেক্ষা করতে হচ্ছে। এক মিনিট পর চেষ্টা করুন অথবা ইমেইল লিংক ব্যবহার করুন।';
+    return 'অতিরিক্ত প্রচেষ্টার কারণে সাময়িকভাবে অপেক্ষা করতে হচ্ছে। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।';
   }
 
   if (code === 'auth/user-disabled') {
@@ -218,14 +177,6 @@ function formatFirebaseAuthError(err: unknown, mode: 'google' | 'email' | 'reset
   }
 
   return err instanceof Error ? err.message : 'Authentication failed.';
-}
-
-function getSafeContinueUrl(): string {
-  if (typeof window === 'undefined') {
-    const { projectId } = getFirebaseProjectInfo();
-    return `https://${projectId}.firebaseapp.com/`;
-  }
-  return `${window.location.origin}${window.location.pathname}`;
 }
 
 function stripActionParamsFromBrowserUrl(): void {
@@ -254,11 +205,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [staffLoading, setStaffLoading] = useState(false);
   const [serverVerified, setServerVerified] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [popupBlocked, setPopupBlocked] = useState(false);
-  const [emailLinkSentTo, setEmailLinkSentTo] = useState<string | null>(null);
-  const [pendingEmailLinkUrl, setPendingEmailLinkUrl] = useState<string | null>(null);
+  const [pendingResetActionUrl, setPendingResetActionUrl] = useState<string | null>(null);
   const staffUnsubRef = React.useRef<(() => void) | null>(null);
-  const autoBootstrapAttemptedRef = React.useRef<Set<string>>(new Set());
   const handledInitialUrlRef = React.useRef(false);
 
   const attachStaffProfileListener = React.useCallback((uid: string) => {
@@ -336,49 +284,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void getRedirectResult(auth, popupRedirectResolver).catch((err) => {
-      if (err) {
-        setAuthError(formatFirebaseAuthError(err, 'google'));
-      }
-    });
-
     if (!handledInitialUrlRef.current && typeof window !== 'undefined') {
       handledInitialUrlRef.current = true;
       const currentHref = unwrapFirebaseActionUrl(window.location.href);
-      if (currentHref && isSignInWithEmailLink(auth, currentHref)) {
-        const storedEmail = (
-          window.localStorage.getItem(PENDING_EMAIL_SIGNIN_STORAGE_KEY) || ''
-        ).trim();
+      const { mode, oobCode } = extractFirebaseActionParams(currentHref);
+      if (mode === 'verifyEmail' && oobCode) {
         stripActionParamsFromBrowserUrl();
-        if (storedEmail) {
-          void signInWithEmailLink(auth, storedEmail, currentHref)
-            .then(() => {
-              window.localStorage.removeItem(PENDING_EMAIL_SIGNIN_STORAGE_KEY);
-              setPendingEmailLinkUrl(null);
-              setEmailLinkSentTo(null);
-            })
-            .catch((err) => {
-              setAuthError(formatFirebaseAuthError(err, 'link'));
-            });
-        } else {
-          setPendingEmailLinkUrl(currentHref);
-        }
-      } else {
-        const { mode, oobCode } = extractFirebaseActionParams(currentHref);
-        if (mode === 'verifyEmail' && oobCode) {
-          stripActionParamsFromBrowserUrl();
-          void applyActionCode(auth, oobCode)
-            .then(async () => {
-              if (auth.currentUser) {
-                await auth.currentUser.reload();
-                await auth.currentUser.getIdToken(true);
-                setUser({ ...auth.currentUser } as User);
-              }
-            })
-            .catch((err) => {
-              setAuthError(formatFirebaseAuthError(err, 'link'));
-            });
-        }
+        void applyActionCode(auth, oobCode)
+          .then(async () => {
+            if (auth.currentUser) {
+              await auth.currentUser.reload();
+              await auth.currentUser.getIdToken(true);
+              setUser({ ...auth.currentUser } as User);
+            }
+          })
+          .catch((err) => {
+            setAuthError(formatFirebaseAuthError(err));
+          });
+      } else if (mode === 'resetPassword' && oobCode) {
+        stripActionParamsFromBrowserUrl();
+        setPendingResetActionUrl(currentHref);
       }
     }
 
@@ -398,10 +323,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      setPopupBlocked(false);
-      setEmailLinkSentTo(null);
-      setPendingEmailLinkUrl(null);
-
+      setPendingResetActionUrl(null);
       setStaffLoading(true);
       try {
         await verifyServerSession();
@@ -409,7 +331,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthError(null);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : 'Server identity verification failed.';
-        // Instead of automatically signing out, we now log the error and let the UI handle the state
         console.error('Server session verification failed:', errMsg);
         setServerVerified(false);
         setAuthError(errMsg);
@@ -476,231 +397,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const loginWithGoogle = async () => {
-    setAuthError(null);
-    setPopupBlocked(false);
-    try {
-      await signInWithPopup(auth, googleProvider, popupRedirectResolver);
-    } catch (err) {
-      const code = (err as { code?: string })?.code || '';
-      if (
-        code === 'auth/popup-blocked' ||
-        code === 'auth/popup-closed-by-user' ||
-        code === 'auth/cancelled-popup-request'
-      ) {
-        await signInWithRedirect(auth, googleProvider, popupRedirectResolver);
-        return;
-      }
-      const guidance = formatFirebaseAuthError(err, 'google');
-      setAuthError(guidance);
-      throw new Error(guidance);
-    }
-  };
-
-  const loginWithGoogleRedirect = async () => {
-    setAuthError(null);
-    setPopupBlocked(false);
-    try {
-      const primaryUrl = getSafeContinueUrl();
-      await signInWithRedirect(auth, googleProvider, popupRedirectResolver);
-    } catch (err) {
-      const guidance = formatFirebaseAuthError(err, 'google');
-      setAuthError(guidance);
-      throw new Error(guidance);
-    }
-  };
-
   const loginWithEmailPassword = async (email: string, password: string) => {
     setAuthError(null);
-    setPopupBlocked(false);
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password);
     } catch (err) {
-      const guidance = formatFirebaseAuthError(err, 'email');
-      setAuthError(guidance);
-      throw new Error(guidance);
-    }
-  };
-
-  const dispatchSignInEmailLink = async (cleanEmail: string): Promise<void> => {
-    const primaryUrl = getSafeContinueUrl();
-    try {
-      await sendSignInLinkToEmail(auth, cleanEmail, {
-        url: primaryUrl,
-        handleCodeInApp: true,
-      });
-    } catch (err) {
-      const code = (err as { code?: string })?.code || '';
-      if (code === 'auth/unauthorized-domain' || code === 'auth/invalid-continue-uri') {
-        const { projectId } = getFirebaseProjectInfo();
-        await sendSignInLinkToEmail(auth, cleanEmail, {
-          url: `https://${projectId}.firebaseapp.com/`,
-          handleCodeInApp: true,
-        });
-      } else {
-        throw err;
-      }
-    }
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(PENDING_EMAIL_SIGNIN_STORAGE_KEY, cleanEmail);
-    }
-    setEmailLinkSentTo(cleanEmail);
-  };
-
-  const sendPopupFreeSignInLink = async (email: string): Promise<string> => {
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
-      const msg = 'আপনার অনুমোদিত অ্যাডমিন ইমেইল ঠিকানা লিখুন (যেমন ventegksy@gmail.com)।';
-      setAuthError(msg);
-      throw new Error(msg);
-    }
-    setAuthError(null);
-    try {
-      await dispatchSignInEmailLink(cleanEmail);
-      return `পপআপ-মুক্ত লগইন লিংক ${cleanEmail}-এ পাঠানো হয়েছে! Gmail ইনবক্স (বা Spam) খুলে লিংকে ক্লিক করুন—অথবা ইমেইলের লিংকটি কপি করে নিচের বক্সে পেস্ট করলেই এই স্ক্রিনেই তাৎক্ষণিক লগইন হয়ে যাবে।`;
-    } catch (err) {
-      const guidance = formatFirebaseAuthError(err, 'link');
-      setAuthError(guidance);
-      throw new Error(guidance);
-    }
-  };
-
-  const setupPasswordOrSendEmailLink = async (
-    email: string,
-    password: string,
-    displayName?: string
-  ): Promise<{ status: 'account_created' | 'verification_link_sent'; message: string }> => {
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
-      const msg = 'সঠিক স্টাফ বা অ্যাডমিন ইমেইল ঠিকানা লিখুন।';
-      setAuthError(msg);
-      throw new Error(msg);
-    }
-    if (!password || password.length < 6) {
-      const msg =
-        'পাসওয়ার্ড সেট করতে Password বক্সে কমপক্ষে ৬ অক্ষরের একটি পাসওয়ার্ড লিখুন, তারপর আবার ক্লিক করুন।';
-      setAuthError(msg);
-      throw new Error(msg);
-    }
-
-    setAuthError(null);
-    setPopupBlocked(false);
-
-    try {
-      const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
-      if (displayName && displayName.trim()) {
-        await updateProfile(cred.user, { displayName: displayName.trim() });
-      }
-      await sendEmailVerification(cred.user);
-      return {
-        status: 'account_created',
-        message: `${cleanEmail} অ্যাকাউন্ট তৈরি হয়েছে এবং ভেরিফিকেশন লিংক পাঠানো হয়েছে। ইনবক্স থেকে ভেরিফাই করুন।`,
-      };
-    } catch (createErr) {
-      const code = (createErr as { code?: string })?.code || '';
-      if (code === 'auth/email-already-in-use') {
-        try {
-          await dispatchSignInEmailLink(cleanEmail);
-          return {
-            status: 'verification_link_sent',
-            message: `${cleanEmail} ইতিমধ্যে নিবন্ধিত আছে। কোনো পপআপ ছাড়াই আপনার দেওয়া পাসওয়ার্ডটি যুক্ত ও লগইন করতে ${cleanEmail}-এ একটি ভেরিফিকেশন লগইন লিংক পাঠানো হয়েছে—Gmail থেকে লিংকটি নিচে পেস্ট করুন অথবা সরাসরি ক্লিক করুন।`,
-          };
-        } catch (linkErr) {
-          const guidance = formatFirebaseAuthError(linkErr, 'link');
-          setAuthError(guidance);
-          throw new Error(guidance);
-        }
-      }
-
-      const guidance = formatFirebaseAuthError(createErr, 'email');
-      setAuthError(guidance);
-      throw new Error(guidance);
-    }
-  };
-
-  const completeFirebaseEmailAction = async (
-    rawLinkOrCode: string,
-    emailInput?: string,
-    newPassword?: string
-  ): Promise<string> => {
-    const { cleanUrl, mode, oobCode } = extractFirebaseActionParams(rawLinkOrCode);
-    if (!cleanUrl) {
-      const msg = 'ইমেইল থেকে পাওয়া সম্পূর্ণ লিংকটি কপি করে বক্সে পেস্ট করুন।';
-      setAuthError(msg);
-      throw new Error(msg);
-    }
-
-    setAuthError(null);
-    setPopupBlocked(false);
-
-    try {
-      if (isSignInWithEmailLink(auth, cleanUrl) || mode === 'signIn') {
-        const storedEmail =
-          typeof window !== 'undefined'
-            ? window.localStorage.getItem(PENDING_EMAIL_SIGNIN_STORAGE_KEY) || ''
-            : '';
-        const targetEmail = (emailInput || emailLinkSentTo || storedEmail).trim().toLowerCase();
-        if (!targetEmail) {
-          const msg = 'যে ইমেইল ঠিকানায় লিংক পাঠানো হয়েছিল সেটি লিখুন (যেমন ventegksy@gmail.com)।';
-          setAuthError(msg);
-          throw new Error(msg);
-        }
-
-        const cred = await signInWithEmailLink(auth, targetEmail, cleanUrl);
-        if (typeof window !== 'undefined') {
-          window.localStorage.removeItem(PENDING_EMAIL_SIGNIN_STORAGE_KEY);
-        }
-        setPendingEmailLinkUrl(null);
-        setEmailLinkSentTo(null);
-
-        if (newPassword && newPassword.length >= 6) {
-          const alreadyHasPassword = cred.user.providerData.some(
-            (p) => p.providerId === 'password'
-          );
-          if (alreadyHasPassword) {
-            await updatePassword(cred.user, newPassword);
-          } else {
-            const emailCred = EmailAuthProvider.credential(targetEmail, newPassword);
-            await linkWithCredential(cred.user, emailCred);
-          }
-          await cred.user.reload();
-          setUser({ ...cred.user } as User);
-          return `${targetEmail} অ্যাকাউন্টে সফলভাবে লগইন ও পাসওয়ার্ড সেট সম্পন্ন হয়েছে! পরবর্তীতে সরাসরি ইমেইল ও পাসওয়ার্ড দিয়েই লগইন করতে পারবেন।`;
-        }
-
-        return `${targetEmail} অ্যাকাউন্টে পপআপ ছাড়াই সফলভাবে লগইন সম্পন্ন হয়েছে!`;
-      }
-
-      if (mode === 'resetPassword' && oobCode) {
-        if (!newPassword || newPassword.length < 6) {
-          const msg =
-            'পাসওয়ার্ড সেট করতে কমপক্ষে ৬ অক্ষরের নতুন পাসওয়ার্ড লিখুন, তারপর আবার বাটনে ক্লিক করুন।';
-          setAuthError(msg);
-          throw new Error(msg);
-        }
-        const verifiedEmail = await verifyPasswordResetCode(auth, oobCode);
-        await confirmPasswordReset(auth, oobCode, newPassword);
-        await signInWithEmailAndPassword(auth, verifiedEmail, newPassword);
-        setPendingEmailLinkUrl(null);
-        setEmailLinkSentTo(null);
-        return `${verifiedEmail} অ্যাকাউন্টে নতুন পাসওয়ার্ড সেট হয়েছে এবং লগইন সম্পন্ন হয়েছে!`;
-      }
-
-      if ((mode === 'verifyEmail' && oobCode) || (oobCode && auth.currentUser)) {
-        await applyActionCode(auth, oobCode);
-        await refreshCurrentUserVerification();
-        return 'ইমেইল ভেরিফিকেশন সফলভাবে সম্পন্ন হয়েছে!';
-      }
-
-      const invalidMsg =
-        'পেস্ট করা লিংকটি সঠিক Firebase সাইন-ইন বা ভেরিফিকেশন লিংক নয়। ইমেইলের "Sign in" বাটন বা লিংকটি সম্পূর্ণ কপি করে পেস্ট করুন।';
-      setAuthError(invalidMsg);
-      throw new Error(invalidMsg);
-    } catch (err) {
-      if (err instanceof Error && !(err as { code?: string }).code) {
-        throw err;
-      }
-      const guidance = formatFirebaseAuthError(err, 'link');
+      const guidance = formatFirebaseAuthError(err);
       setAuthError(guidance);
       throw new Error(guidance);
     }
@@ -711,79 +413,98 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     password: string,
     displayName?: string
   ): Promise<string> => {
-    const cleanEmail = email.trim();
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      const msg = 'সঠিক ইমেইল ঠিকানা লিখুন। (Please enter a valid email address.)';
+      setAuthError(msg);
+      throw new Error(msg);
+    }
     if (password.length < 6) {
       const msg = 'পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে। (Password must be at least 6 characters.)';
       setAuthError(msg);
       throw new Error(msg);
     }
     setAuthError(null);
-    setPopupBlocked(false);
     try {
       const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
       if (displayName && displayName.trim()) {
         await updateProfile(cred.user, { displayName: displayName.trim() });
       }
       await sendEmailVerification(cred.user);
-      return `অ্যাকাউন্ট তৈরি হয়েছে এবং ${cleanEmail}-এ ভেরিফিকেশন লিংক পাঠানো হয়েছে। ইনবক্স থেকে ভেরিফাই করুন। (Account created—check your inbox to verify ${cleanEmail}.)`;
+      return `অ্যাকাউন্ট তৈরি হয়েছে এবং ${cleanEmail}-এ ভেরিফিকেশন লিংক পাঠানো হয়েছে। ইনবক্স থেকে ভেরিফাই করুন।`;
     } catch (err) {
-      const guidance = formatFirebaseAuthError(err, 'email');
+      const guidance = formatFirebaseAuthError(err);
       setAuthError(guidance);
       throw new Error(guidance);
     }
   };
 
-  const linkPasswordViaGoogle = async (
-    expectedEmail: string,
-    newPassword: string
+  const refreshCurrentUserVerification = async (): Promise<boolean> => {
+    const current = auth.currentUser;
+    if (!current) return false;
+    await current.reload();
+    await current.getIdToken(true);
+    setUser({ ...current } as User);
+    if (current.emailVerified) {
+      try {
+        await verifyServerSession();
+        setServerVerified(true);
+        setAuthError(null);
+      } catch (err) {
+        setAuthError(err instanceof Error ? err.message : 'Server verification failed.');
+      }
+      const dbStatus = await verifyFirestoreDatabaseProvisioned(true);
+      if (dbStatus.provisioned) {
+        attachStaffProfileListener(current.uid);
+      }
+      return true;
+    }
+    return false;
+  };
+
+  const completeFirebaseEmailAction = async (
+    rawLinkOrCode: string,
+    newPassword?: string
   ): Promise<string> => {
-    if (!newPassword || newPassword.length < 6) {
-      const msg =
-        'পাসওয়ার্ড সেট করতে নিচের Password বক্সে কমপক্ষে ৬ অক্ষরের একটি পাসওয়ার্ড লিখুন, তারপর আবার ক্লিক করুন। (Enter a password of at least 6 characters first.)';
+    const { cleanUrl, mode, oobCode } = extractFirebaseActionParams(rawLinkOrCode);
+    if (!cleanUrl) {
+      const msg = 'ইমেইল থেকে পাওয়া সম্পূর্ণ ভেরিফিকেশন বা রিসেট লিংকটি কপি করে বক্সে পেস্ট করুন।';
       setAuthError(msg);
       throw new Error(msg);
     }
 
-    // Trigger Google popup synchronously on user gesture
-    const popupTask = signInWithPopup(auth, googleProvider, popupRedirectResolver);
     setAuthError(null);
-    setPopupBlocked(false);
 
     try {
-      const cred = await popupTask;
-      const signedInEmail = (cred.user.email || '').trim().toLowerCase();
-      const targetEmail = expectedEmail.trim().toLowerCase();
-
-      if (targetEmail && signedInEmail && signedInEmail !== targetEmail) {
-        const mismatchMsg = `আপনি Google পপআপে "${signedInEmail}" সিলেক্ট করেছেন, কিন্তু ফর্মে "${targetEmail}" লিখেছিলেন। লগইন সম্পন্ন হয়েছে—পাসওয়ার্ড সেট করতে Staff & Security থেকে সেট করুন।`;
-        return mismatchMsg;
+      if (mode === 'resetPassword' && oobCode) {
+        if (!newPassword || newPassword.length < 6) {
+          const msg =
+            'পাসওয়ার্ড সেট করতে কমপক্ষে ৬ অক্ষরের নতুন পাসওয়ার্ড লিখুন, তারপর আবার বাটনে ক্লিক করুন।';
+          setAuthError(msg);
+          throw new Error(msg);
+        }
+        const verifiedEmail = await verifyPasswordResetCode(auth, oobCode);
+        await confirmPasswordReset(auth, oobCode, newPassword);
+        await signInWithEmailAndPassword(auth, verifiedEmail, newPassword);
+        setPendingResetActionUrl(null);
+        return `${verifiedEmail} অ্যাকাউন্টে নতুন পাসওয়ার্ড সেট হয়েছে এবং লগইন সম্পন্ন হয়েছে!`;
       }
 
-      const alreadyHasPassword = cred.user.providerData.some(
-        (p) => p.providerId === 'password'
-      );
-      if (alreadyHasPassword) {
-        await updatePassword(cred.user, newPassword);
-      } else if (signedInEmail) {
-        const emailCred = EmailAuthProvider.credential(signedInEmail, newPassword);
-        await linkWithCredential(cred.user, emailCred);
+      if ((mode === 'verifyEmail' && oobCode) || (oobCode && auth.currentUser)) {
+        await applyActionCode(auth, oobCode);
+        await refreshCurrentUserVerification();
+        return 'ইমেইল ভেরিফিকেশন সফলভাবে সম্পন্ন হয়েছে!';
       }
 
-      await cred.user.reload();
-      setUser({ ...cred.user } as User);
-      return `${signedInEmail} অ্যাকাউন্টে পাসওয়ার্ড সফলভাবে যুক্ত হয়েছে! এখন থেকে আপনি Google এবং Email & Password—উভয় পদ্ধতিতেই লগইন করতে পারবেন।`;
+      const invalidMsg =
+        'পেস্ট করা লিংকটি সঠিক ভেরিফিকেশন বা পাসওয়ার্ড রিসেট লিংক নয়। ইমেইলের লিংকটি সম্পূর্ণ কপি করে পেস্ট করুন।';
+      setAuthError(invalidMsg);
+      throw new Error(invalidMsg);
     } catch (err) {
-      const code = (err as { code?: string })?.code || '';
-      if (code === 'auth/popup-blocked') {
-        setPopupBlocked(true);
+      if (err instanceof Error && !(err as { code?: string }).code) {
+        throw err;
       }
-      if (code === 'auth/operation-not-allowed' && auth.currentUser) {
-        const { projectId } = getFirebaseProjectInfo();
-        const partialMsg = `Google দিয়ে লগইন সম্পন্ন হয়েছে, কিন্তু Firebase প্রজেক্ট "${projectId}"-এ Email/Password অপশনটি এখনো চালু নেই। পাসওয়ার্ড চালু করতে Firebase Console -> Authentication -> Sign-in method -> Email/Password -> Enable করুন।`;
-        setAuthError(partialMsg);
-        throw new Error(partialMsg);
-      }
-      const guidance = formatFirebaseAuthError(err, 'google');
+      const guidance = formatFirebaseAuthError(err);
       setAuthError(guidance);
       throw new Error(guidance);
     }
@@ -812,13 +533,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await applyPasswordChange();
     } catch (err) {
       const code = (err as { code?: string })?.code || '';
-      if (
-        code === 'auth/requires-recent-login' &&
-        current.providerData.some((p) => p.providerId === 'google.com')
-      ) {
-        await reauthenticateWithPopup(current, googleProvider, popupRedirectResolver);
-        await applyPasswordChange();
-      } else if (code === 'auth/operation-not-allowed') {
+      if (code === 'auth/operation-not-allowed') {
         const { projectId } = getFirebaseProjectInfo();
         throw new Error(
           `Email/Password Sign-In is disabled in Firebase project "${projectId}". Enable Email/Password in Firebase Console -> Authentication -> Sign-in method -> Email/Password -> Enable -> Save, then try again.`
@@ -830,19 +545,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     await current.reload();
     setUser({ ...current } as User);
-    return `Password saved for ${current.email}. You can now sign in via both Google SSO and Email & Password.`;
+    return `Password saved for ${current.email}.`;
   };
 
   const requestPasswordReset = async (email: string): Promise<string> => {
     const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      const msg = 'সঠিক ইমেইল ঠিকানা লিখুন। (Please enter a valid email address.)';
+      setAuthError(msg);
+      throw new Error(msg);
+    }
     setAuthError(null);
-    setPopupBlocked(false);
     try {
       await sendPasswordResetEmail(auth, cleanEmail);
-      setEmailLinkSentTo(cleanEmail);
-      return `পাসওয়ার্ড সেটআপ / রিসেট লিংক ${cleanEmail}-এ পাঠানো হয়েছে। ইমেইলের লিংকে ক্লিক করে পাসওয়ার্ড সেট করুন, অথবা লিংকটি কপি করে নিচে পেস্ট করে এই স্ক্রিনেই পাসওয়ার্ড সেট ও লগইন করুন।`;
+      return `পাসওয়ার্ড রিসেট লিংক ${cleanEmail}-এ পাঠানো হয়েছে। ইমেইলের লিংকে ক্লিক করে নতুন পাসওয়ার্ড সেট করুন, অথবা লিংকটি কপি করে নিচে পেস্ট করুন।`;
     } catch (err) {
-      const guidance = formatFirebaseAuthError(err, 'reset');
+      const guidance = formatFirebaseAuthError(err);
       setAuthError(guidance);
       throw new Error(guidance);
     }
@@ -851,7 +569,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const sendVerificationToCurrentUser = async (): Promise<string> => {
     if (!auth.currentUser) throw new Error('No signed-in account found.');
     await sendEmailVerification(auth.currentUser);
-    return `Verification link sent to ${auth.currentUser.email || 'your email'}. Click the link in your inbox, then click "I Verified My Email — Refresh" (or paste the link below).`;
+    return `ভেরিফিকেশন লিংক ${auth.currentUser.email || 'আপনার ইমেইলে'} পাঠানো হয়েছে। ইনবক্স বা Spam খুলে লিংকে ক্লিক করুন এবং নিচে "I Verified My Email — Refresh" চাপুন।`;
   };
 
   const retrySessionVerification = async (): Promise<void> => {
@@ -879,29 +597,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setStaffLoading(false);
       setAuthError(err instanceof Error ? err.message : 'Session verification failed.');
     }
-  };
-
-  const refreshCurrentUserVerification = async (): Promise<boolean> => {
-    const current = auth.currentUser;
-    if (!current) return false;
-    await current.reload();
-    await current.getIdToken(true);
-    setUser({ ...current } as User);
-    if (current.emailVerified) {
-      try {
-        await verifyServerSession();
-        setServerVerified(true);
-        setAuthError(null);
-      } catch (err) {
-        setAuthError(err instanceof Error ? err.message : 'Server verification failed.');
-      }
-      const dbStatus = await verifyFirestoreDatabaseProvisioned(true);
-      if (dbStatus.provisioned) {
-        attachStaffProfileListener(current.uid);
-      }
-      return true;
-    }
-    return false;
   };
 
   const completeSuperAdminBootstrap = async (displayName: string, licenseNumber: string) => {
@@ -947,8 +642,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logoutAdmin = async () => {
     setAuthError(null);
-    setEmailLinkSentTo(null);
-    setPendingEmailLinkUrl(null);
+    setPendingResetActionUrl(null);
     await signOut(auth);
   };
 
@@ -969,24 +663,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         permissions,
         mfaEnrolledCount,
         authError,
-        popupBlocked,
-        emailLinkSentTo,
-        pendingEmailLinkUrl,
-        clearAuthError: () => {
-          setAuthError(null);
-          setPopupBlocked(false);
-        },
-        clearEmailLinkFlow: () => {
-          setEmailLinkSentTo(null);
-          setPendingEmailLinkUrl(null);
-        },
-        loginWithGoogle,
-        loginWithGoogleRedirect,
+        pendingResetActionUrl,
+        clearAuthError: () => setAuthError(null),
+        clearPendingResetAction: () => setPendingResetActionUrl(null),
         loginWithEmailPassword,
         registerWithEmailPassword,
-        linkPasswordViaGoogle,
-        sendPopupFreeSignInLink,
-        setupPasswordOrSendEmailLink,
         completeFirebaseEmailAction,
         setOrUpdateCurrentAccountPassword,
         requestPasswordReset,

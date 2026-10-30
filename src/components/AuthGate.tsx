@@ -1,22 +1,21 @@
 import React, { useState } from 'react';
 import {
   AlertCircle,
+  ArrowLeft,
   CheckCircle2,
   Copy,
   KeyRound,
-  Link2,
-  Lock,
   LogOut,
   Mail,
   RefreshCw,
-  Send,
   ShieldAlert,
   ShieldCheck,
+  User,
 } from 'lucide-react';
 import firestoreRulesRaw from '../../firestore.rules?raw';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
-import { getFirebaseProjectInfo, isEmbeddedInIframe } from '../lib/firebase';
+import { getFirebaseProjectInfo } from '../lib/firebase';
 import { PharmacyEmblem } from './BrandLogo';
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
@@ -30,34 +29,28 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     isBootstrappedSuperAdmin,
     needsSuperAdminBootstrap,
     authError,
-    popupBlocked,
-    emailLinkSentTo,
-    pendingEmailLinkUrl,
+    pendingResetActionUrl,
     clearAuthError,
-    clearEmailLinkFlow,
-    loginWithGoogle,
-    loginWithGoogleRedirect,
+    clearPendingResetAction,
+    logoutAdmin,
     loginWithEmailPassword,
-    linkPasswordViaGoogle,
-    sendPopupFreeSignInLink,
-    setupPasswordOrSendEmailLink,
+    registerWithEmailPassword,
     completeFirebaseEmailAction,
     requestPasswordReset,
     sendVerificationToCurrentUser,
     refreshCurrentUserVerification,
     retrySessionVerification,
     completeSuperAdminBootstrap,
-    logoutAdmin,
   } = useAuth();
   const { language, toggleLanguage, t } = useLanguage();
 
-  const [authTab, setAuthTab] = useState<'google' | 'email'>('google');
   const [emailMode, setEmailMode] = useState<'signin' | 'setup' | 'reset'>('signin');
-  const [showPopupFreePanel, setShowPopupFreePanel] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [setupDisplayName, setSetupDisplayName] = useState('');
-  const [pastedActionLink, setPastedActionLink] = useState('');
+  const [resetLinkSent, setResetLinkSent] = useState(false);
+  const [pastedResetLink, setPastedResetLink] = useState('');
+  const [newResetPassword, setNewResetPassword] = useState('');
   const [verifyEmailLinkInput, setVerifyEmailLinkInput] = useState('');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -69,7 +62,6 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [copiedConsoleUrl, setCopiedConsoleUrl] = useState(false);
 
   const projectInfo = getFirebaseProjectInfo();
-  const embeddedInIframe = isEmbeddedInIframe();
   const firestoreConsoleUrl = `https://console.firebase.google.com/project/${projectInfo.projectId}/firestore`;
 
   const copyFirestoreRulesToClipboard = async () => {
@@ -116,45 +108,65 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Signed-in user whose email is not yet verified (e.g., newly registered Email/Password account)
+  // Signed-in user whose email is not yet verified (newly registered Email/Password account)
   if (user && !user.emailVerified) {
     return (
       <div className="min-h-screen bg-[#F4F7F8] flex items-center justify-center p-6">
         <div className="w-full max-w-lg bg-white border border-[#E6ECEF] rounded-2xl p-8 space-y-5">
-          <div className="flex items-start gap-3">
-            <Mail className="w-7 h-7 text-[#0D7E74] shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <h1 className="text-xl font-bold text-[#0F172A]">
-                Verify Your Administrator Email
-              </h1>
-              <p className="text-sm text-[#64748B] leading-relaxed">
-                ইমেইল ভেরিফিকেশন সম্পন্ন না হওয়া পর্যন্ত অ্যাডমিন প্যানেল অ্যাক্সেস সক্রিয় হবে না। ইনবক্সে পাঠানো লিংকে ক্লিক করে নিচে রিফ্রেশ বাটন চাপুন—অথবা লিংকটি সরাসরি নিচে পেস্ট করুন।
-              </p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <Mail className="w-7 h-7 text-[#0D7E74] shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h1 className="text-xl font-bold text-[#0F172A]">
+                  {t('অ্যাডমিন ইমেইল ভেরিফাই করুন', 'Verify Your Administrator Email')}
+                </h1>
+                <p className="text-sm text-[#64748B] leading-relaxed">
+                  {t(
+                    'ইমেইল ভেরিফিকেশন সম্পন্ন না হওয়া পর্যন্ত অ্যাডমিন প্যানেল অ্যাক্সেস সক্রিয় হবে না। ইনবক্সে (বা Spam ফোল্ডারে) পাঠানো লিংকে ক্লিক করে নিচে রিফ্রেশ বাটন চাপুন—অথবা লিংকটি সরাসরি নিচে পেস্ট করুন।',
+                    'Administrator access requires a verified email. Click the verification link sent to your inbox (or Spam folder) and press Refresh below, or paste the verification link directly.'
+                  )}
+                </p>
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={toggleLanguage}
+              className="px-3 py-1.5 text-xs font-bold text-[#0D7E74] bg-[#F0FDFA] border border-[#CCFBF1] hover:bg-[#E0F7F5] rounded-xl transition-colors whitespace-nowrap shrink-0"
+            >
+              {language === 'bn' ? 'English 🌐' : 'বাংলা 🌐'}
+            </button>
           </div>
 
           <div className="p-4 bg-[#F4F7F8] border border-[#E6ECEF] rounded-xl space-y-2 text-xs">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[#64748B]">Signed-In Email</span>
+              <span className="text-[#64748B]">{t('লগইনকৃত ইমেইল', 'Signed-In Email')}</span>
               <span className="font-mono text-[#0F172A]">{user.email || 'Unverified'}</span>
             </div>
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[#64748B]">Email Verified</span>
-              <span className="font-mono text-[#B45309]">Pending Verification</span>
+              <span className="text-[#64748B]">{t('ভেরিফিকেশন স্ট্যাটাস', 'Email Verified')}</span>
+              <span className="font-mono text-[#B45309]">
+                {t('ভেরিফিকেশন বাকি আছে', 'Pending Verification')}
+              </span>
             </div>
           </div>
 
           <div className="p-3.5 bg-[#F8FAFC] border border-[#E6ECEF] rounded-xl space-y-2">
             <label className="block text-xs font-medium text-[#0F172A]">
-              ইমেইলের ভেরিফিকেশন লিংক পেস্ট করে তাৎক্ষণিক ভেরিফাই করুন (ঐচ্ছিক)
+              {t(
+                'ইমেইলের ভেরিফিকেশন লিংক পেস্ট করে তাৎক্ষণিক ভেরিফাই করুন (ঐচ্ছিক)',
+                'Paste verification link from email to verify instantly (optional)'
+              )}
             </label>
             <div className="flex items-center gap-2">
               <input
                 type="text"
                 value={verifyEmailLinkInput}
                 onChange={(e) => setVerifyEmailLinkInput(e.target.value)}
-                placeholder="Paste verification link from email..."
-                className="flex-1 px-3 py-2 text-xs border border-[#E6ECEF] rounded-lg bg-white"
+                placeholder={t(
+                  'ইমেইল থেকে ভেরিফিকেশন লিংক এখানে পেস্ট করুন...',
+                  'Paste verification link from email...'
+                )}
+                className="flex-1 px-3 py-2 text-xs border border-[#E6ECEF] rounded-lg bg-white text-[#0F172A] focus:outline-none focus:border-[#0D7E74]"
               />
               <button
                 type="button"
@@ -162,24 +174,30 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                 onClick={async () => {
                   setBusy(true);
                   setStatusMessage(null);
+                  clearAuthError();
                   try {
-                    const msg = await completeFirebaseEmailAction(verifyEmailLinkInput, user.email || '');
+                    const msg = await completeFirebaseEmailAction(verifyEmailLinkInput);
                     setVerifyEmailLinkInput('');
                     setStatusMessage(msg);
-                  } catch (err) {
-                    setStatusMessage(
-                      err instanceof Error ? err.message : 'Verification link could not be applied.'
-                    );
+                  } catch {
+                    // Error handled via authError in context
                   } finally {
                     setBusy(false);
                   }
                 }}
                 className="px-3 py-2 text-xs font-semibold text-white bg-[#0D7E74] hover:bg-[#09635B] disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap shrink-0"
               >
-                Verify Link
+                {t('ভেরিফাই করুন', 'Verify Link')}
               </button>
             </div>
           </div>
+
+          {authError && (
+            <div className="p-3.5 bg-[#FEF2F2] border border-[#FECACA] rounded-xl text-xs text-[#991B1B] flex items-start gap-2.5 leading-relaxed">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{authError}</span>
+            </div>
+          )}
 
           {statusMessage && (
             <div className="p-3.5 bg-[#F0FDFA] border border-[#99F6E4] rounded-xl text-xs text-[#0F766E] flex items-start gap-2.5 leading-relaxed">
@@ -195,7 +213,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-[#64748B] hover:text-[#0F172A] rounded-xl transition-colors whitespace-nowrap shrink-0"
             >
               <LogOut className="w-4 h-4" />
-              Sign Out
+              {t('সাইন আউট', 'Sign Out')}
             </button>
             <div className="flex flex-wrap items-center gap-2">
               <button
@@ -204,6 +222,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                 onClick={async () => {
                   setBusy(true);
                   setStatusMessage(null);
+                  clearAuthError();
                   try {
                     const msg = await sendVerificationToCurrentUser();
                     setStatusMessage(msg);
@@ -217,18 +236,22 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                 }}
                 className="px-3.5 py-2.5 text-xs font-medium bg-white border border-[#E6ECEF] text-[#0F172A] hover:bg-[#F4F7F8] rounded-xl transition-colors whitespace-nowrap shrink-0"
               >
-                Resend Verification Email
+                {t('পুনরায় লিংক পাঠান', 'Resend Verification Email')}
               </button>
               <button
                 type="button"
                 disabled={busy}
                 onClick={async () => {
                   setBusy(true);
+                  clearAuthError();
                   try {
                     const verified = await refreshCurrentUserVerification();
                     if (!verified) {
                       setStatusMessage(
-                        'Email is not marked verified yet. Click the verification link in your inbox (or Spam folder) first.'
+                        t(
+                          'ইমেইল এখনো ভেরিফাই হয়নি। আগে ইনবক্স বা Spam ফোল্ডারে গিয়ে ভেরিফিকেশন লিংকে ক্লিক করুন।',
+                          'Email is not marked verified yet. Click the verification link in your inbox (or Spam folder) first.'
+                        )
                       );
                     }
                   } finally {
@@ -238,7 +261,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                 className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-white bg-[#0D7E74] hover:bg-[#09635B] rounded-xl transition-colors whitespace-nowrap shrink-0"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
-                I Verified My Email — Refresh
+                {t('ভেরিফাই সম্পন্ন — রিফ্রেশ করুন', 'I Verified My Email — Refresh')}
               </button>
             </div>
           </div>
@@ -487,23 +510,6 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <div className="flex gap-3 pt-4">
-              <button
-                type="button"
-                onClick={() => void logoutAdmin()}
-                className="px-4 py-2.5 text-sm font-medium text-[#64748B] hover:text-[#0F172A] border border-[#E6ECEF] rounded-xl transition-colors"
-              >
-                Sign Out
-              </button>
-              <button
-                type="button"
-                onClick={() => void retrySessionVerification()}
-                className="px-4 py-2.5 text-sm font-semibold text-white bg-[#0D7E74] hover:bg-[#09635B] rounded-xl transition-colors"
-              >
-                Verify & Refresh Access
-              </button>
-          </div>
-
           <div className="p-4 bg-[#F4F7F8] border border-[#E6ECEF] rounded-xl space-y-2.5 text-xs">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[#64748B]">Signed-In Email</span>
@@ -579,89 +585,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  const showPasswordSetupRecovery =
-    authTab === 'email' &&
-    Boolean(authError) &&
-    (authError?.includes('invalid-credential') || authError?.includes('ইতিমধ্যে নিবন্ধিত'));
-
-  const renderEmailActionVerificationBox = (includePasswordActivation: boolean) => (
-    <div className="p-4 bg-[#F0FDFA] border border-[#99F6E4] rounded-xl space-y-3">
-      <div className="space-y-1">
-        <p className="text-xs font-semibold text-[#0F766E] flex items-center gap-1.5">
-          <Link2 className="w-3.5 h-3.5 shrink-0" />
-          <span>
-            লগইন লিংক পাঠানো হয়েছে ({emailLinkSentTo || email || 'আপনার ইমেইলে'})
-          </span>
-        </p>
-        <p className="text-xs text-[#115E59] leading-relaxed">
-          Gmail খুলে ইমেইলের বাটনে সরাসরি ক্লিক করুন—অথবা ইমেইলের লিংকটি কপি করে নিচের বক্সে পেস্ট করলেই পপআপ ছাড়াই এই স্ক্রিনেই তাৎক্ষণিক লগইন হয়ে যাবে:
-        </p>
-      </div>
-
-      <div className="space-y-2">
-        <input
-          type="text"
-          value={pastedActionLink}
-          onChange={(e) => setPastedActionLink(e.target.value)}
-          placeholder="Gmail থেকে Sign-in / Reset লিংক কপি করে এখানে পেস্ট করুন..."
-          className="w-full px-3 py-2 text-xs border border-[#99F6E4] rounded-lg bg-white text-[#0F172A]"
-        />
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <button
-            type="button"
-            disabled={busy || !pastedActionLink.trim()}
-            onClick={async () => {
-              setBusy(true);
-              setStatusMessage(null);
-              try {
-                const msg = await completeFirebaseEmailAction(
-                  pastedActionLink,
-                  email || emailLinkSentTo || '',
-                  includePasswordActivation && password.length >= 6 ? password : undefined
-                );
-                setPastedActionLink('');
-                clearAuthError();
-                setStatusMessage(msg);
-              } catch {
-                // Handled in AuthContext
-              } finally {
-                setBusy(false);
-              }
-            }}
-            className="flex-1 px-3.5 py-2 text-xs font-semibold text-white bg-[#0D7E74] hover:bg-[#09635B] disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap"
-          >
-            {busy
-              ? 'Verifying...'
-              : includePasswordActivation && password.length >= 6
-              ? 'Verify Link, Save Password & Sign In'
-              : 'Verify Link & Sign In Instantly'}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={async () => {
-              const target = (email || emailLinkSentTo || '').trim();
-              if (!target) return;
-              setBusy(true);
-              try {
-                const msg = await sendPopupFreeSignInLink(target);
-                setStatusMessage(msg);
-              } catch {
-                // Handled in AuthContext
-              } finally {
-                setBusy(false);
-              }
-            }}
-            className="px-2.5 py-2 text-xs font-medium text-[#0F766E] bg-white border border-[#99F6E4] hover:bg-[#CCFBF1] rounded-lg transition-colors whitespace-nowrap shrink-0"
-          >
-            Resend Link
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  // Unauthenticated Login View
+  // Unauthenticated Email & Password Login / Registration / Password Reset View
   return (
     <div className="min-h-screen bg-[#F4F7F8] grid lg:grid-cols-12 items-stretch">
       {/* Left Minimal Brand Column */}
@@ -703,15 +627,15 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       {/* Right Authentication Form Column */}
       <div className="lg:col-span-7 flex items-center justify-center p-6 lg:p-14">
         <div className="w-full max-w-md bg-white border border-[#E6ECEF] rounded-2xl p-8 space-y-6">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
               <h2 className="text-2xl font-bold text-[#0F172A]">
-                {t('অ্যাডমিন সাইন ইন ও রেজিস্ট্রেশন', 'Administrator Sign In')}
+                {t('অ্যাডমিন লগইন ও ভেরিফিকেশন', 'Administrator Sign In')}
               </h2>
               <p className="text-sm text-[#64748B]">
                 {t(
-                  'যেকোনো উদ্যোক্তা সহজেই ফার্মেসি অ্যাডমিন অ্যাকাউন্ট তৈরি ও লগইন করতে পারেন।',
-                  'Sign in or register your pharmacy administrator account instantly.'
+                  'ইমেইল ও পাসওয়ার্ডের মাধ্যমে লগইন বা নতুন অ্যাডমিন অ্যাকাউন্ট তৈরি ও ভেরিফাই করুন।',
+                  'Sign in or register and verify your pharmacy administrator account via email and password.'
                 )}
               </p>
             </div>
@@ -725,21 +649,22 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
             </button>
           </div>
 
-          {pendingEmailLinkUrl ? (
+          {pendingResetActionUrl ? (
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
                 setBusy(true);
                 setStatusMessage(null);
+                clearAuthError();
                 try {
                   const msg = await completeFirebaseEmailAction(
-                    pendingEmailLinkUrl,
-                    email,
-                    password.length >= 6 ? password : undefined
+                    pendingResetActionUrl,
+                    newResetPassword
                   );
+                  setNewResetPassword('');
                   setStatusMessage(msg);
                 } catch {
-                  // Handled in AuthContext
+                  // Handled via authError in context
                 } finally {
                   setBusy(false);
                 }
@@ -747,45 +672,32 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               className="space-y-4"
             >
               <div className="p-3.5 bg-[#F0FDFA] border border-[#99F6E4] rounded-xl text-xs text-[#0F766E] leading-relaxed">
-                ইমেইল সাইন-ইন লিংক শনাক্ত হয়েছে! লগইন সম্পন্ন করতে নিচে আপনার অ্যাডমিন ইমেইল নিশ্চিত করুন (চাইলে ভবিষ্যতের জন্য পাসওয়ার্ডও সেট করতে পারেন)।
+                {t(
+                  'পাসওয়ার্ড রিসেট লিংক যাচাই হয়েছে। নিচে নতুন পাসওয়ার্ড দিন (কমপক্ষে ৬ অক্ষর)।',
+                  'Password reset link detected. Enter your new password below (at least 6 characters).'
+                )}
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-[#0F172A] mb-1">
-                  Confirm Administrator Email
+                <label className="block text-xs font-semibold text-[#0F172A] mb-1">
+                  {t('নতুন পাসওয়ার্ড', 'New Password')} *
                 </label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-[#64748B] absolute left-3 top-3" />
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="ventegksy@gmail.com"
-                    className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-[#E6ECEF] rounded-xl"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#0F172A] mb-1">
-                  Optional Password for Future Email Sign-In (ঐচ্ছিক, ৬+ অক্ষর)
-                </label>
-                <div className="relative">
-                  <KeyRound className="w-4 h-4 text-[#64748B] absolute left-3 top-3" />
+                  <KeyRound className="w-4 h-4 text-[#64748B] absolute left-3 top-2.5" />
                   <input
                     type="password"
+                    required
                     minLength={6}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Leave blank or set 6+ character password"
-                    className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-[#E6ECEF] rounded-xl"
+                    value={newResetPassword}
+                    onChange={(e) => setNewResetPassword(e.target.value)}
+                    placeholder={t('কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড', 'At least 6 characters')}
+                    className="w-full pl-9 pr-3.5 py-2.5 text-xs border border-[#E6ECEF] rounded-xl focus:outline-none focus:border-[#0D7E74]"
                   />
                 </div>
               </div>
 
               {authError && (
-                <div className="p-3 bg-[#FEF2F2] border border-[#FECACA] rounded-xl text-xs text-[#991B1B] flex items-start gap-2">
+                <div className="p-3.5 bg-[#FEF2F2] border border-[#FECACA] rounded-xl text-xs text-[#991B1B] flex items-start gap-2.5 leading-relaxed">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>{authError}</span>
                 </div>
@@ -795,307 +707,316 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                 <button
                   type="button"
                   onClick={() => {
-                    clearEmailLinkFlow();
+                    clearPendingResetAction();
                     clearAuthError();
                   }}
                   className="text-xs font-medium text-[#64748B] hover:text-[#0F172A]"
                 >
-                  Cancel
+                  {t('বাতিল করুন', 'Cancel')}
                 </button>
                 <button
                   type="submit"
                   disabled={busy}
-                  className="px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-[#0E877C] to-[#064E49] hover:opacity-95 disabled:opacity-60 rounded-xl transition-opacity"
+                  className="px-5 py-2.5 text-xs font-bold text-white bg-gradient-to-r from-[#0E877C] to-[#064E49] hover:opacity-95 disabled:opacity-60 rounded-xl transition-opacity"
                 >
-                  {busy ? 'Signing In...' : 'Complete Administrator Sign In'}
+                  {busy
+                    ? t('প্রসেসিং হচ্ছে...', 'Saving...')
+                    : t('নতুন পাসওয়ার্ড সেট ও লগইন করুন', 'Save Password & Sign In')}
                 </button>
               </div>
             </form>
+          ) : emailMode === 'reset' ? (
+            <div className="space-y-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setEmailMode('signin');
+                  setResetLinkSent(false);
+                  clearAuthError();
+                  setStatusMessage(null);
+                }}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0D7E74] hover:underline"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>{t('লগইন পেজে ফিরে যান', 'Back to Sign In')}</span>
+              </button>
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setBusy(true);
+                  clearAuthError();
+                  setStatusMessage(null);
+                  try {
+                    const msg = await requestPasswordReset(email);
+                    setResetLinkSent(true);
+                    setStatusMessage(msg);
+                  } catch {
+                    // Handled via authError in context
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+                className="space-y-3.5"
+              >
+                <div>
+                  <label className="block text-xs font-semibold text-[#0F172A] mb-1">
+                    {t('আপনার নিবন্ধিত ইমেইল ঠিকানা', 'Registered Email Address')} *
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-[#64748B] absolute left-3 top-2.5" />
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="admin@yourpharmacy.com"
+                      className="w-full pl-9 pr-3.5 py-2.5 text-xs border border-[#E6ECEF] rounded-xl focus:outline-none focus:border-[#0D7E74]"
+                    />
+                  </div>
+                </div>
+
+                {authError && (
+                  <div className="p-3.5 bg-[#FEF2F2] border border-[#FECACA] rounded-xl text-xs text-[#991B1B] flex items-start gap-2.5 leading-relaxed">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{authError}</span>
+                  </div>
+                )}
+
+                {statusMessage && (
+                  <div className="p-3.5 bg-[#F0FDFA] border border-[#99F6E4] rounded-xl text-xs text-[#0F766E] flex items-start gap-2.5 leading-relaxed">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{statusMessage}</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="w-full px-4 py-3 text-xs font-bold text-white bg-gradient-to-r from-[#0E877C] to-[#064E49] hover:opacity-95 disabled:opacity-60 rounded-xl transition-opacity shadow-xs"
+                >
+                  {busy
+                    ? t('লিংক পাঠানো হচ্ছে...', 'Sending Reset Link...')
+                    : t('পাসওয়ার্ড রিসেট লিংক পাঠান', 'Send Password Reset Link')}
+                </button>
+              </form>
+
+              {resetLinkSent && (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setBusy(true);
+                    clearAuthError();
+                    setStatusMessage(null);
+                    try {
+                      const msg = await completeFirebaseEmailAction(
+                        pastedResetLink,
+                        newResetPassword
+                      );
+                      setPastedResetLink('');
+                      setNewResetPassword('');
+                      setStatusMessage(msg);
+                    } catch {
+                      // Handled via authError in context
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  className="p-3.5 bg-[#F8FAFC] border border-[#E6ECEF] rounded-xl space-y-2.5"
+                >
+                  <p className="text-xs font-semibold text-[#0F172A]">
+                    {t(
+                      'অথবা ইমেইলের রিসেট লিংক এখানে পেস্ট করে সরাসরি নতুন পাসওয়ার্ড দিন (ঐচ্ছিক):',
+                      'Or paste the reset link from your email to set your password directly:'
+                    )}
+                  </p>
+                  <input
+                    type="text"
+                    required
+                    value={pastedResetLink}
+                    onChange={(e) => setPastedResetLink(e.target.value)}
+                    placeholder={t('ইমেইল থেকে রিসেট লিংক পেস্ট করুন...', 'Paste reset link from email...')}
+                    className="w-full px-3 py-2 text-xs border border-[#E6ECEF] rounded-lg bg-white text-[#0F172A]"
+                  />
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={newResetPassword}
+                    onChange={(e) => setNewResetPassword(e.target.value)}
+                    placeholder={t('নতুন পাসওয়ার্ড (৬+ অক্ষর)', 'New password (6+ characters)')}
+                    className="w-full px-3 py-2 text-xs border border-[#E6ECEF] rounded-lg bg-white text-[#0F172A]"
+                  />
+                  <button
+                    type="submit"
+                    disabled={busy || !pastedResetLink.trim() || newResetPassword.length < 6}
+                    className="w-full px-3 py-2 text-xs font-semibold text-white bg-[#0D7E74] hover:bg-[#09635B] disabled:opacity-50 rounded-lg transition-colors"
+                  >
+                    {t('পাসওয়ার্ড আপডেট ও লগইন করুন', 'Reset Password & Sign In')}
+                  </button>
+                </form>
+              )}
+            </div>
           ) : (
-            <>
-              {/* Interactive Auth Method Switcher */}
-              <div className="flex items-center gap-1 p-1 bg-[#F1F6F7] rounded-xl">
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 border-b border-[#EEF2F6]">
                 <button
                   type="button"
                   onClick={() => {
-                    setAuthTab('google');
                     setEmailMode('signin');
                     clearAuthError();
                     setStatusMessage(null);
                   }}
-                  className={`flex-1 px-3 py-2.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center justify-center gap-2 ${
-                    authTab === 'google'
-                      ? 'bg-white text-[#0D7E74] shadow-xs'
-                      : 'text-[#64748B] hover:text-[#0F172A]'
+                  className={`text-xs font-bold pb-2.5 border-b-2 transition-colors ${
+                    emailMode === 'signin'
+                      ? 'border-[#0D7E74] text-[#0D7E74]'
+                      : 'border-transparent text-[#64748B] hover:text-[#0F172A]'
                   }`}
                 >
-                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                    <path
-                      fill="#4285F4"
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                    />
-                  </svg>
-                  <span>{t('গুগল সাইনআপ / লগইন', 'Google Sign In / Sign Up')}</span>
+                  {t('লগইন করুন', 'Sign In')}
                 </button>
                 <button
                   type="button"
                   onClick={() => {
-                    setAuthTab('email');
+                    setEmailMode('setup');
                     clearAuthError();
                     setStatusMessage(null);
                   }}
-                  className={`flex-1 px-3 py-2.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center justify-center gap-2 ${
-                    authTab === 'email'
-                      ? 'bg-white text-[#0D7E74] shadow-xs'
-                      : 'text-[#64748B] hover:text-[#0F172A]'
+                  className={`text-xs font-bold pb-2.5 border-b-2 transition-colors ${
+                    emailMode === 'setup'
+                      ? 'border-[#0D7E74] text-[#0D7E74]'
+                      : 'border-transparent text-[#64748B] hover:text-[#0F172A]'
                   }`}
                 >
-                  <Mail className="w-4 h-4 shrink-0" />
-                  <span>{t('ইমেইল ও পাসওয়ার্ড', 'Email & Password')}</span>
+                  {t('নতুন সাইনআপ / রেজিস্ট্রেশন', 'Sign Up & Verify')}
                 </button>
               </div>
 
-              {authError && (
-                <div className="p-3.5 bg-[#FEF2F2] border border-[#FECACA] rounded-xl text-xs text-[#991B1B] space-y-2.5 leading-relaxed">
-                  <div className="flex items-start gap-2.5">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[#DC2626]" />
-                    <span>{authError}</span>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setBusy(true);
+                  clearAuthError();
+                  setStatusMessage(null);
+                  try {
+                    if (emailMode === 'signin') {
+                      await loginWithEmailPassword(email, password);
+                    } else {
+                      const msg = await registerWithEmailPassword(
+                        email,
+                        password,
+                        setupDisplayName
+                      );
+                      setStatusMessage(msg);
+                    }
+                  } catch {
+                    // Handled via authError in context
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+                className="space-y-3.5"
+              >
+                {emailMode === 'setup' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-[#0F172A] mb-1">
+                      {t('আপনার নাম', 'Full Name')}
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 text-[#64748B] absolute left-3 top-2.5" />
+                      <input
+                        type="text"
+                        maxLength={120}
+                        value={setupDisplayName}
+                        onChange={(e) => setSetupDisplayName(e.target.value)}
+                        placeholder={t('যেমন: Chief Administrator', 'e.g. Chief Administrator')}
+                        className="w-full pl-9 pr-3.5 py-2.5 text-xs border border-[#E6ECEF] rounded-xl focus:outline-none focus:border-[#0D7E74]"
+                      />
+                    </div>
                   </div>
-                  {popupBlocked && (
-                    <div className="pt-1">
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-[#0F172A] mb-1">
+                    {t('ইমেইল ঠিকানা', 'Email Address')} *
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-[#64748B] absolute left-3 top-2.5" />
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="admin@yourpharmacy.com"
+                      className="w-full pl-9 pr-3.5 py-2.5 text-xs border border-[#E6ECEF] rounded-xl focus:outline-none focus:border-[#0D7E74]"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-[#0F172A]">
+                      {t('পাসওয়ার্ড', 'Password')} *
+                    </label>
+                    {emailMode === 'signin' && (
                       <button
                         type="button"
-                        disabled={busy}
-                        onClick={async () => {
-                          setBusy(true);
-                          try {
-                            await loginWithGoogleRedirect();
-                          } catch {
-                            // Handled in AuthContext
-                          } finally {
-                            setBusy(false);
-                          }
+                        onClick={() => {
+                          setEmailMode('reset');
+                          clearAuthError();
+                          setStatusMessage(null);
                         }}
-                        className="px-3 py-1.5 text-xs font-semibold text-white bg-[#0D7E74] hover:bg-[#086058] rounded-lg transition-colors"
+                        className="text-xs font-medium text-[#0D7E74] hover:underline"
                       >
-                        {t('সরাসরি রিডাইরেক্ট করে গুগল লগইন করুন', 'Continue via Google Redirect')}
+                        {t('পাসওয়ার্ড ভুলে গেছেন?', 'Forgot Password?')}
                       </button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {statusMessage && (
-                <div className="p-3.5 bg-[#F0FDFA] border border-[#99F6E4] rounded-xl text-xs text-[#0F766E] flex items-start gap-2.5 leading-relaxed">
-                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{statusMessage}</span>
-                </div>
-              )}
-
-              {authTab === 'google' ? (
-                <div className="space-y-5 py-2">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={async () => {
-                      setBusy(true);
-                      clearAuthError();
-                      setStatusMessage(null);
-                      try {
-                        await loginWithGoogle();
-                      } catch {
-                        // Handled in context
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                    className="w-full flex items-center justify-center gap-3 px-5 py-3.5 text-sm font-bold text-[#0F172A] bg-white hover:bg-[#F8FAFC] border-2 border-[#CBD5E1] hover:border-[#0D7E74] rounded-2xl shadow-xs transition-all disabled:opacity-60 cursor-pointer"
-                  >
-                    <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-                      <path
-                        fill="#4285F4"
-                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                      />
-                      <path
-                        fill="#EA4335"
-                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                      />
-                    </svg>
-                    <span>
-                      {busy
-                        ? t('গুগল অ্যাকাউন্ট যাচাই হচ্ছে...', 'Signing in with Google...')
-                        : t('গুগল দিয়ে এক ক্লিকে সাইনআপ ও লগইন', 'Continue with Google')}
-                    </span>
-                  </button>
-
-                  <div className="p-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl text-center space-y-1">
-                    <p className="text-xs font-semibold text-[#0F172A]">
-                      {t('গুগল আইডি দিয়ে তাত্ক্ষণিক প্রবেশ', 'Instant Google Access')}
-                    </p>
-                    <p className="text-xs text-[#64748B] leading-relaxed">
-                      {t(
-                        'যেকোনো উদ্যোক্তা তাদের গুগল একাউন্ট নির্বাচন করে ১-ক্লিকেই এডমিন একাউন্ট তৈরি এবং লগইন সম্পন্ন করতে পারবেন। কোনো পাসওয়ার্ডের প্রয়োজন নেই।',
-                        'Any entrepreneur can register or sign in to their pharmacy administrator account instantly with 1-click Google authentication.'
-                      )}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between border-b border-[#EEF2F6] pb-2">
-                    <button
-                      type="button"
-                      onClick={() => setEmailMode('signin')}
-                      className={`text-xs font-bold pb-1 border-b-2 transition-colors ${
-                        emailMode === 'signin'
-                          ? 'border-[#0D7E74] text-[#0D7E74]'
-                          : 'border-transparent text-[#64748B]'
-                      }`}
-                    >
-                      {t('লগইন করুন', 'Sign In')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEmailMode('setup')}
-                      className={`text-xs font-bold pb-1 border-b-2 transition-colors ${
-                        emailMode === 'setup'
-                          ? 'border-[#0D7E74] text-[#0D7E74]'
-                          : 'border-transparent text-[#64748B]'
-                      }`}
-                    >
-                      {t('নতুন সাইনআপ / পাসওয়ার্ড তৈরি', 'Create Account / Setup')}
-                    </button>
-                  </div>
-
-                  <form
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      setBusy(true);
-                      clearAuthError();
-                      setStatusMessage(null);
-                      try {
-                        if (emailMode === 'signin') {
-                          await loginWithEmailPassword(email, password);
-                        } else {
-                          const result = await setupPasswordOrSendEmailLink(
-                            email,
-                            password,
-                            setupDisplayName
-                          );
-                          setStatusMessage(result.message);
-                        }
-                      } catch {
-                        // Handled in context
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                    className="space-y-3.5"
-                  >
-                    {emailMode === 'setup' && (
-                      <div>
-                        <label className="block text-xs font-semibold text-[#0F172A] mb-1">
-                          {t('আপনার নাম', 'Full Name')}
-                        </label>
-                        <input
-                          type="text"
-                          maxLength={120}
-                          value={setupDisplayName}
-                          onChange={(e) => setSetupDisplayName(e.target.value)}
-                          placeholder="e.g. Chief Administrator"
-                          className="w-full px-3.5 py-2.5 text-xs border border-[#E6ECEF] rounded-xl focus:outline-none focus:border-[#0D7E74]"
-                        />
-                      </div>
                     )}
-
-                    <div>
-                      <label className="block text-xs font-semibold text-[#0F172A] mb-1">
-                        {t('ইমেইল ঠিকানা', 'Email Address')} *
-                      </label>
-                      <div className="relative">
-                        <Mail className="w-4 h-4 text-[#64748B] absolute left-3 top-2.5" />
-                        <input
-                          type="email"
-                          required
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          placeholder="admin@yourpharmacy.com"
-                          className="w-full pl-9 pr-3.5 py-2.5 text-xs border border-[#E6ECEF] rounded-xl focus:outline-none focus:border-[#0D7E74]"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-xs font-semibold text-[#0F172A]">
-                          {t('পাসওয়ার্ড', 'Password')} *
-                        </label>
-                        {emailMode === 'signin' && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEmailMode('reset');
-                              clearAuthError();
-                            }}
-                            className="text-xs font-medium text-[#0D7E74] hover:underline"
-                          >
-                            {t('পাসওয়ার্ড ভুলে গেছেন?', 'Forgot Password?')}
-                          </button>
-                        )}
-                      </div>
-                      <div className="relative">
-                        <KeyRound className="w-4 h-4 text-[#64748B] absolute left-3 top-2.5" />
-                        <input
-                          type="password"
-                          required
-                          minLength={6}
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          placeholder={
-                            emailMode === 'setup'
-                              ? t('কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড', 'At least 6 characters')
-                              : t('আপনার পাসওয়ার্ড লিখুন', 'Enter password')
-                          }
-                          className="w-full pl-9 pr-3.5 py-2.5 text-xs border border-[#E6ECEF] rounded-xl focus:outline-none focus:border-[#0D7E74]"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={busy}
-                      className="w-full px-4 py-3 text-xs font-bold text-white bg-gradient-to-r from-[#0E877C] to-[#064E49] hover:opacity-95 disabled:opacity-60 rounded-xl transition-opacity shadow-xs"
-                    >
-                      {busy
-                        ? t('প্রসেসিং হচ্ছে...', 'Processing...')
-                        : emailMode === 'signin'
-                        ? t('ইমেইল দিয়ে সাইন ইন করুন', 'Sign In with Email')
-                        : t('নতুন অ্যাকাউন্ট রেজিস্টার করুন', 'Register Admin Account')}
-                    </button>
-                  </form>
+                  </div>
+                  <div className="relative">
+                    <KeyRound className="w-4 h-4 text-[#64748B] absolute left-3 top-2.5" />
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder={
+                        emailMode === 'setup'
+                          ? t('কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড', 'At least 6 characters')
+                          : t('আপনার পাসওয়ার্ড লিখুন', 'Enter password')
+                      }
+                      className="w-full pl-9 pr-3.5 py-2.5 text-xs border border-[#E6ECEF] rounded-xl focus:outline-none focus:border-[#0D7E74]"
+                    />
+                  </div>
                 </div>
-              )}
-            </>
+
+                {authError && (
+                  <div className="p-3.5 bg-[#FEF2F2] border border-[#FECACA] rounded-xl text-xs text-[#991B1B] flex items-start gap-2.5 leading-relaxed">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{authError}</span>
+                  </div>
+                )}
+
+                {statusMessage && (
+                  <div className="p-3.5 bg-[#F0FDFA] border border-[#99F6E4] rounded-xl text-xs text-[#0F766E] flex items-start gap-2.5 leading-relaxed">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{statusMessage}</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="w-full px-4 py-3 text-xs font-bold text-white bg-gradient-to-r from-[#0E877C] to-[#064E49] hover:opacity-95 disabled:opacity-60 rounded-xl transition-opacity shadow-xs"
+                >
+                  {busy
+                    ? t('প্রসেসিং হচ্ছে...', 'Processing...')
+                    : emailMode === 'signin'
+                    ? t('ইমেইল ও পাসওয়ার্ড দিয়ে লগইন করুন', 'Sign In with Email & Password')
+                    : t('অ্যাকাউন্ট তৈরি ও ভেরিফিকেশন ইমেইল পাঠান', 'Create Account & Send Verification')}
+                </button>
+              </form>
+            </div>
           )}
         </div>
       </div>
