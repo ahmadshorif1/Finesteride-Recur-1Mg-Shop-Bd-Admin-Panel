@@ -273,7 +273,11 @@ export function OrdersView() {
       </div>
 
       {/* Orders Table */}
-      <div className="bg-white border border-[#E6ECEF] rounded-xl overflow-hidden no-print">
+      <div
+        className={`bg-white border border-[#E6ECEF] rounded-xl overflow-hidden ${
+          liveSelectedOrder ? 'no-print' : ''
+        }`}
+      >
         {filteredOrders.length === 0 ? (
           <div className="p-12 text-center space-y-2">
             <Clock className="w-8 h-8 text-[#64748B] mx-auto" />
@@ -293,7 +297,7 @@ export function OrdersView() {
                   <th className="py-3 px-4">Payment</th>
                   <th className="py-3 px-4 text-right">Total (BDT)</th>
                   <th className="py-3 px-4">Workflow Status</th>
-                  <th className="py-3 px-6 text-right">Inspect</th>
+                  <th className="py-3 px-6 text-right print-hide-col">Inspect</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#EEF2F6] text-sm">
@@ -347,7 +351,7 @@ export function OrdersView() {
                     <td className="py-3 px-4 text-xs font-medium capitalize text-[#0F172A]">
                       {order.orderStatus.replace(/_/g, ' ')}
                     </td>
-                    <td className="py-3 px-6 text-right">
+                    <td className="py-3 px-6 text-right print-hide-col">
                       <button
                         type="button"
                         onClick={() => void openOrderModal(order)}
@@ -367,7 +371,7 @@ export function OrdersView() {
 
       {/* Order Detail, Fulfillment, Payment Verification & Printable Invoice Modal */}
       {liveSelectedOrder && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 print:static print:bg-white print:p-0">
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 print:static print:bg-white print:p-0 print-keep-dialog print-invoice-modal">
           <div className="bg-white border border-[#E6ECEF] rounded-xl max-w-4xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-6 print:border-0 print:max-h-none">
             <div className="flex items-start justify-between gap-4 border-b border-[#EEF2F6] pb-4">
               <div>

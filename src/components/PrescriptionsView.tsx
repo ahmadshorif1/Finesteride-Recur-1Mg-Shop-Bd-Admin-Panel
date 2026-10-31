@@ -44,7 +44,7 @@ export function PrescriptionsView() {
           </p>
         </div>
 
-        <div className="flex items-center gap-1 p-1 bg-[#EEF4F0] rounded-lg self-start">
+        <div className="flex items-center gap-1 p-1 bg-[#EEF4F0] rounded-lg self-start no-print">
           {(['all', 'pending_review', 'approved', 'more_info_requested', 'rejected'] as const).map(
             (st) => (
               <button
@@ -71,7 +71,7 @@ export function PrescriptionsView() {
       </div>
 
       {errorMsg && (
-        <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-4 text-sm text-[#991B1B] flex items-start gap-2.5">
+        <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-4 text-sm text-[#991B1B] flex items-start gap-2.5 no-print">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <span>{errorMsg}</span>
         </div>
@@ -98,7 +98,7 @@ export function PrescriptionsView() {
                   <th className="py-3 px-4">Prescriber &amp; Chamber</th>
                   <th className="py-3 px-4">Gated Medicine(s)</th>
                   <th className="py-3 px-4">Review Status</th>
-                  <th className="py-3 px-6 text-right">Action</th>
+                  <th className="py-3 px-6 text-right print-hide-col">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#EEF2F6] text-sm">
@@ -146,7 +146,7 @@ export function PrescriptionsView() {
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-6 text-right">
+                    <td className="py-3 px-6 text-right print-hide-col">
                       <button
                         type="button"
                         onClick={() => {
@@ -173,7 +173,7 @@ export function PrescriptionsView() {
 
       {/* Clinical Review Modal */}
       {activeReview && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 no-print">
           <div className="bg-white border border-[#E6ECEF] rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-5">
             <div className="flex items-start justify-between border-b border-[#EEF2F6] pb-3">
               <div>

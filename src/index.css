@@ -39,14 +39,213 @@
   }
 }
 
+.print-only {
+  display: none;
+}
+
+/* ==========================================================================
+   A4 Physical Record-Keeping Print Stylesheet
+   Simplifies layout by removing sidebars/chrome, resetting scroll containers,
+   repeating table headers across A4 pages, and formatting tabular ledgers.
+   ========================================================================== */
 @media print {
-  .no-print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 10mm 14mm 10mm;
+  }
+
+  html,
+  body,
+  #root {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 9.5pt !important;
+    line-height: 1.4 !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* 1. Hide non-essential sidebar, navigation, header controls, modals & action columns */
+  aside,
+  nav,
+  header.app-top-header,
+  .no-print,
+  .print-hide-col,
+  table input[type="checkbox"],
+  [role="dialog"]:not(.print-keep-dialog) {
     display: none !important;
   }
+
   .print-only {
     display: block !important;
   }
-  body {
+
+  /* Suppress generic shell masthead when printing a dedicated single-order invoice modal */
+  body:has(.print-invoice-modal) .print-ledger-header {
+    display: none !important;
+  }
+
+  /* 2. Reset workspace shell, desktop sidebar offset & scroll containers for multi-page A4 flow */
+  .print-shell,
+  .print-content-col,
+  .print-main {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 0 !important;
+    padding-left: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
     background: #ffffff !important;
   }
+
+  .overflow-x-auto,
+  .overflow-y-auto,
+  .overflow-hidden {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  .print-invoice-modal {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+  }
+
+  /* 3. Simplify cards, banners & headings for crisp ink-saving archival output */
+  h1,
+  h2,
+  h3,
+  h4 {
+    color: #0f172a !important;
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+
+  section,
+  .print-keep-together {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Allow sections/containers holding data tables to paginate naturally across A4 sheets */
+  section:has(table),
+  div:has(> table),
+  div:has(> .overflow-x-auto > table) {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+    border-radius: 0 !important;
+  }
+
+  /* 4. Format tables for A4 physical record-keeping & multi-page ledger binders */
+  table {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-collapse: collapse !important;
+    table-layout: auto !important;
+    font-size: 8.5pt !important;
+    line-height: 1.35 !important;
+    font-variant-numeric: tabular-nums !important;
+    background: #ffffff !important;
+    margin-top: 2mm !important;
+    margin-bottom: 4mm !important;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tfoot {
+    display: table-footer-group !important;
+  }
+
+  tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    background: #ffffff !important;
+  }
+
+  tbody tr:nth-child(even) {
+    background-color: #f8fafc !important;
+  }
+
+  th {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+    font-weight: 700 !important;
+    font-size: 7.5pt !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.03em !important;
+    padding: 5px 6px !important;
+    border: 1px solid #94a3b8 !important;
+    white-space: normal !important;
+    vertical-align: bottom !important;
+  }
+
+  td {
+    color: #0f172a !important;
+    padding: 5px 6px !important;
+    border: 1px solid #cbd5e1 !important;
+    vertical-align: top !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  /* Expand truncated strings so physical paper records contain complete SKUs, names & notes */
+  th .truncate,
+  td .truncate,
+  td.truncate,
+  td .line-clamp-1,
+  td .line-clamp-2 {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    max-width: none !important;
+    -webkit-line-clamp: unset !important;
+  }
+
+  /* Omit decorative product/category thumbnails inside table cells for dense ledger rows */
+  td img {
+    display: none !important;
+  }
+
+  /* 5. Physical Record-Keeping Masthead & Pharmacist Verification Footer */
+  .print-ledger-header {
+    border-bottom: 1.5px solid #0f172a !important;
+    padding-bottom: 3.5mm !important;
+    margin-bottom: 4.5mm !important;
+  }
+
+  .print-ledger-footer {
+    border-top: 1px solid #94a3b8 !important;
+    padding-top: 5mm !important;
+    margin-top: 8mm !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  a {
+    text-decoration: none !important;
+    color: inherit !important;
+  }
 }
+

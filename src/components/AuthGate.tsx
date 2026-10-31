@@ -62,7 +62,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [copiedConsoleUrl, setCopiedConsoleUrl] = useState(false);
 
   const projectInfo = getFirebaseProjectInfo();
-  const firestoreConsoleUrl = `https://console.firebase.google.com/project/${projectInfo.projectId}/firestore`;
+  const firestoreConsoleUrl = `https://console.firebase.google.com/project/${projectInfo.projectId}/firestore/databases/-default-/rules`;
 
   const copyFirestoreRulesToClipboard = async () => {
     try {
@@ -428,6 +428,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                   adminDisplayName.trim() || user.displayName || 'Chief Pharmacy Administrator',
                   adminLicenseNo.trim() || 'BPC-REG-0001'
                 );
+              } catch {
+                // Handled cleanly via authError state in AuthContext
               } finally {
                 setBusy(false);
               }

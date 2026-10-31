@@ -537,7 +537,7 @@ export function PromotionsCmsView() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 no-print">
           <div className="inline-flex bg-white border border-[#E6ECEF] rounded-lg p-1">
             <button
               type="button"
@@ -604,14 +604,14 @@ export function PromotionsCmsView() {
       </div>
 
       {errorMsg && (
-        <div className="bg-white border border-[#FCA5A5] rounded-xl p-4 flex items-start gap-3">
+        <div className="bg-white border border-[#FCA5A5] rounded-xl p-4 flex items-start gap-3 no-print">
           <AlertCircle className="w-5 h-5 text-[#DC2626] shrink-0 mt-0.5" />
           <p className="text-sm text-[#991B1B]">{errorMsg}</p>
         </div>
       )}
 
       {successMsg && (
-        <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 flex items-center justify-between gap-3">
+        <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 flex items-center justify-between gap-3 no-print">
           <div className="flex items-center gap-2.5 text-sm text-[#15803D]">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{successMsg}</span>
@@ -668,7 +668,7 @@ export function PromotionsCmsView() {
                       <th className="py-3 px-4">Validity</th>
                       <th className="py-3 px-4 text-right">Usage</th>
                       <th className="py-3 px-4">Status</th>
-                      <th className="py-3 px-6 text-right">Action</th>
+                      <th className="py-3 px-6 text-right print-hide-col">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#EEF2F6] text-sm">
@@ -720,7 +720,7 @@ export function PromotionsCmsView() {
                             </span>
                           )}
                         </td>
-                        <td className="py-3.5 px-6 text-right">
+                        <td className="py-3.5 px-6 text-right print-hide-col">
                           {permissions?.canManageCoupons ? (
                             <div className="inline-flex items-center justify-end gap-1.5">
                               <button
@@ -773,7 +773,7 @@ export function PromotionsCmsView() {
           </div>
 
           {/* Trusted Backend Discount Validator */}
-          <div className="xl:col-span-4 bg-white border border-[#E6ECEF] rounded-xl p-6 space-y-4">
+          <div className="xl:col-span-4 bg-white border border-[#E6ECEF] rounded-xl p-6 space-y-4 no-print">
             <div className="flex items-center gap-2">
               <Calculator className="w-4 h-4 text-[#0D7E74]" />
               <h2 className="text-base font-semibold text-[#0F172A]">
@@ -925,7 +925,7 @@ export function PromotionsCmsView() {
                       <th className="py-3 px-4">Category</th>
                       <th className="py-3 px-4 text-right">Offer Price</th>
                       <th className="py-3 px-4 text-right">Previous MRP</th>
-                      <th className="py-3 px-6 text-right">Action</th>
+                      <th className="py-3 px-6 text-right print-hide-col">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#EEF2F6]">
@@ -952,7 +952,7 @@ export function PromotionsCmsView() {
                           <td className="py-3 px-4 text-right font-mono tabular-nums text-xs text-[#64748B]">
                             {prod.previousPrice > 0 ? formatBdt(prod.previousPrice) : 'Featured'}
                           </td>
-                          <td className="py-3 px-6 text-right">
+                          <td className="py-3 px-6 text-right print-hide-col">
                             {permissions?.canEditPricing && (
                               <div className="inline-flex items-center gap-2">
                                 <button

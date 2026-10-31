@@ -484,7 +484,7 @@ export function OverviewView({ onNavigate }: OverviewProps) {
       )}
 
       {/* TIER 1: Deep-Teal Hero Welcome Banner matching uploaded reference image */}
-      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0F8F83] via-[#0A6E67] to-[#064A46] p-6 sm:p-7 text-white">
+      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0F8F83] via-[#0A6E67] to-[#064A46] p-6 sm:p-7 text-white no-print">
         {/* Subtle Tilted Pharmaceutical Capsule Illustration on Right */}
         <svg
           viewBox="0 0 220 220"
@@ -573,7 +573,7 @@ export function OverviewView({ onNavigate }: OverviewProps) {
       </section>
 
       {/* AI Proactive Stock Intelligence & Depletion Alert Card */}
-      <section className="bg-gradient-to-r from-[#F0FDFA] via-[#E6FFFA] to-[#F4F7F8] border border-[#0D7E74]/25 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+      <section className="bg-gradient-to-r from-[#F0FDFA] via-[#E6FFFA] to-[#F4F7F8] border border-[#0D7E74]/25 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs no-print">
         <div className="flex items-start sm:items-center gap-3.5 min-w-0">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#0E877C] to-[#064E49] text-white flex items-center justify-center shrink-0 shadow-xs">
             <Bot className="w-5 h-5 text-[#6EE7B7]" />
@@ -645,7 +645,7 @@ export function OverviewView({ onNavigate }: OverviewProps) {
                   <div className="text-[11px] text-[#94A3B8] truncate">{card.subtitle}</div>
                 </div>
 
-                <div className="pt-1">
+                <div className="pt-1 no-print">
                   <MiniSparkline values={card.spark} color={card.accentColor} />
                 </div>
               </div>
@@ -668,7 +668,7 @@ export function OverviewView({ onNavigate }: OverviewProps) {
               </p>
             </div>
 
-            <div className="flex items-center gap-2 self-start">
+            <div className="flex items-center gap-2 self-start no-print">
               <select
                 value={dateRange}
                 onChange={(e) => setDateRange(e.target.value as DateRangeKey)}
@@ -733,7 +733,7 @@ export function OverviewView({ onNavigate }: OverviewProps) {
           </div>
 
           {/* Smooth Teal AreaChart */}
-          <div className="h-56 w-full pt-2">
+          <div className="h-56 w-full pt-2 no-print">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={revenueTimeline} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <defs>
@@ -795,7 +795,7 @@ export function OverviewView({ onNavigate }: OverviewProps) {
             <button
               type="button"
               onClick={() => onNavigate('categories')}
-              className="text-xs font-medium text-[#0D7E74] hover:underline whitespace-nowrap shrink-0"
+              className="text-xs font-medium text-[#0D7E74] hover:underline whitespace-nowrap shrink-0 no-print"
             >
               Manage
             </button>
@@ -820,7 +820,7 @@ export function OverviewView({ onNavigate }: OverviewProps) {
             </div>
           ) : (
             <>
-              <div className="relative h-48 w-full flex items-center justify-center">
+              <div className="relative h-48 w-full flex items-center justify-center no-print">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
@@ -905,7 +905,7 @@ export function OverviewView({ onNavigate }: OverviewProps) {
             <button
               type="button"
               onClick={() => onNavigate('prescriptions')}
-              className="inline-flex items-center gap-1 text-xs font-medium text-[#0D7E74] hover:underline whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1 text-xs font-medium text-[#0D7E74] hover:underline whitespace-nowrap shrink-0 no-print"
             >
               Review All
               <ArrowRight className="w-3.5 h-3.5" />
@@ -935,7 +935,7 @@ export function OverviewView({ onNavigate }: OverviewProps) {
                     <button
                       type="button"
                       onClick={() => onNavigate('prescriptions')}
-                      className="px-2.5 py-1 text-xs font-medium text-[#0D7E74] bg-[#F0FDFA] hover:bg-[#CCFBF1] rounded-lg whitespace-nowrap shrink-0"
+                      className="px-2.5 py-1 text-xs font-medium text-[#0D7E74] bg-[#F0FDFA] hover:bg-[#CCFBF1] rounded-lg whitespace-nowrap shrink-0 no-print"
                     >
                       Verify Rx
                     </button>
@@ -961,7 +961,7 @@ export function OverviewView({ onNavigate }: OverviewProps) {
                       <button
                         type="button"
                         onClick={() => onNavigate('inventory')}
-                        className="px-2.5 py-1 text-xs font-medium text-[#DC2626] bg-[#FEF2F2] hover:bg-[#FEE2E2] rounded-lg whitespace-nowrap shrink-0"
+                        className="px-2.5 py-1 text-xs font-medium text-[#DC2626] bg-[#FEF2F2] hover:bg-[#FEE2E2] rounded-lg whitespace-nowrap shrink-0 no-print"
                       >
                         Inspect
                       </button>
@@ -988,7 +988,7 @@ export function OverviewView({ onNavigate }: OverviewProps) {
               <button
                 type="button"
                 onClick={() => onNavigate('staff_security')}
-                className="inline-flex items-center gap-1 text-xs font-medium text-[#0D7E74] hover:underline whitespace-nowrap shrink-0"
+                className="inline-flex items-center gap-1 text-xs font-medium text-[#0D7E74] hover:underline whitespace-nowrap shrink-0 no-print"
               >
                 Full Audit Log
                 <ArrowRight className="w-3.5 h-3.5" />

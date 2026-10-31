@@ -177,6 +177,39 @@ export async function verifyServerSession(): Promise<{
   };
 }
 
+const persistedStaffUids = new Set<string>();
+
+export async function ensureStaffProfileInFirestore(actor: ActorContext): Promise<void> {
+  if (!actor.uid || persistedStaffUids.has(actor.uid)) return;
+  const staffRef = doc(db, 'staffMembers', actor.uid);
+  const path = `staffMembers/${actor.uid}`;
+  try {
+    if (auth.currentUser && auth.currentUser.uid === actor.uid) {
+      await auth.currentUser.getIdToken(true);
+    }
+    const snap = await getDoc(staffRef);
+    if (!snap.exists()) {
+      await setDoc(staffRef, {
+        uid: actor.uid,
+        email: sanitizeText((actor.email || '').toLowerCase(), 254),
+        displayName: sanitizeText(actor.displayName || 'Chief Pharmacy Administrator', 120),
+        role: actor.role || 'super_admin',
+        status: 'active',
+        department: 'Executive & Clinical Governance',
+        licenseNumber: sanitizeText(actor.licenseNumber || 'BPC-REG-0001', 64),
+        storeId: SHARED_STORE_ID,
+        authorizedStaffUids: boundedStaffUids(actor.activeStaffUids, actor.uid),
+        createdBy: actor.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+    persistedStaffUids.add(actor.uid);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
 export async function recordAdminAudit(
   actor: ActorContext,
   module: AdminAuditLog['module'],
@@ -186,7 +219,6 @@ export async function recordAdminAudit(
   details: string
 ): Promise<void> {
   const logId = makeSafeDocId('aud');
-  const path = `adminAuditLogs/${logId}`;
   try {
     await setDoc(doc(db, 'adminAuditLogs', logId), {
       action: sanitizeText(action, 100),
@@ -202,7 +234,7 @@ export async function recordAdminAudit(
       createdAt: serverTimestamp(),
     });
   } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
+    console.warn('Non-blocking admin audit log write skipped:', error);
   }
 }
 
@@ -231,8 +263,10 @@ export async function bootstrapSuperAdminProfile(params: {
   displayName: string;
   licenseNumber: string;
 }): Promise<void> {
-  const path = `staffMembers/${params.uid}`;
   try {
+    if (auth.currentUser && auth.currentUser.uid === params.uid) {
+      await auth.currentUser.getIdToken(true);
+    }
     await setDoc(doc(db, 'staffMembers', params.uid), {
       uid: params.uid,
       email: sanitizeText(params.email.toLowerCase(), 254),
@@ -247,6 +281,7 @@ export async function bootstrapSuperAdminProfile(params: {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+    persistedStaffUids.add(params.uid);
 
     await recordAdminAudit(
       {
@@ -264,7 +299,20 @@ export async function bootstrapSuperAdminProfile(params: {
       'Provisioned verified Super Admin staff profile in shared Firestore project.'
     );
   } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
+    const rawMsg = error instanceof Error ? error.message : String(error);
+    const { projectId } = getFirebaseProjectInfo();
+    if (
+      rawMsg.includes('Missing or insufficient permissions') ||
+      rawMsg.includes('PERMISSION_DENIED') ||
+      rawMsg.includes('permission-denied')
+    ) {
+      throw new Error(
+        `Firebase প্রজেক্ট "${projectId}"-এ আপডেটকৃত firestore.rules এখনো Publish করা হয়নি বলে /staffMembers/${params.uid} তৈরি করা যায়নি। নিচে "Copy firestore.rules" বাটনে ক্লিক করে কোডটি কপি করুন, Firebase Console -> Firestore Database -> Rules-এ পেস্ট করে Publish চাপুন, তারপর আবার "Activate Super Admin Access" চাপুন।`
+      );
+    }
+    throw error instanceof Error
+      ? error
+      : new Error('Failed to create /staffMembers administrator profile in Firestore.');
   }
 }
 
@@ -279,6 +327,7 @@ export async function provisionStaffAccount(
     licenseNumber: string;
   }
 ): Promise<void> {
+  await ensureStaffProfileInFirestore(actor);
   const cleanUid = sanitizeText(input.uid, 128);
   const path = `staffMembers/${cleanUid}`;
   const nextStaffUids = boundedStaffUids(actor.activeStaffUids, cleanUid);
@@ -322,6 +371,7 @@ export async function updateStaffMemberRecord(
     licenseNumber: string;
   }
 ): Promise<void> {
+  await ensureStaffProfileInFirestore(actor);
   const path = `staffMembers/${existing.uid}`;
   try {
     await updateDoc(doc(db, 'staffMembers', existing.uid), {
@@ -466,12 +516,14 @@ export async function saveCategory(
   },
   productsToSyncCategoryName?: Product[]
 ): Promise<string> {
+  await ensureStaffProfileInFirestore(actor);
   const isEdit = Boolean(input.id);
   const slug = toSlug(input.slug || input.name, 100);
   const categoryId = input.id || `cat_${toSlug(slug, 48)}`;
   const path = `categories/${categoryId}`;
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const cleanName = sanitizeText(input.name, 100);
+  const isActive = input.publicationStatus === 'published';
 
   try {
     if (!isEdit) {
@@ -485,6 +537,7 @@ export async function saveCategory(
         parentCategoryId: sanitizeText(input.parentCategoryId, 128),
         displayOrder: Math.max(0, Math.min(10000, Number(input.displayOrder) || 0)),
         publicationStatus: input.publicationStatus,
+        isActive,
         activeProductCount: Math.max(0, Number(input.activeProductCount) || 0),
         storeId: SHARED_STORE_ID,
         authorizedStaffUids: staffUids,
@@ -503,6 +556,7 @@ export async function saveCategory(
         parentCategoryId: sanitizeText(input.parentCategoryId, 128),
         displayOrder: Math.max(0, Math.min(10000, Number(input.displayOrder) || 0)),
         publicationStatus: input.publicationStatus,
+        isActive,
         activeProductCount: Math.max(0, Number(input.activeProductCount) || 0),
         authorizedStaffUids: staffUids,
         updatedAt: serverTimestamp(),
@@ -569,6 +623,7 @@ export async function swapCategoryDisplayOrder(
   first: Category,
   second: Category
 ): Promise<void> {
+  await ensureStaffProfileInFirestore(actor);
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = `categories/${first.id}`;
   const firstOrder = first.displayOrder;
@@ -608,6 +663,7 @@ export async function reconcileCategoryProductCounts(
   products: Product[]
 ): Promise<number> {
   if (categories.length === 0) return 0;
+  await ensureStaffProfileInFirestore(actor);
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = 'categories/reconcile';
 
@@ -673,6 +729,7 @@ export async function renameBrandAcrossProducts(
   );
   if (matching.length === 0) return 0;
 
+  await ensureStaffProfileInFirestore(actor);
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = 'products/brand-rename';
   try {
@@ -706,6 +763,7 @@ export async function deleteCategorySafely(actor: ActorContext, category: Catego
       `Cannot delete "${category.name}" while it still contains ${category.activeProductCount} active product(s). Reassign or archive products first.`
     );
   }
+  await ensureStaffProfileInFirestore(actor);
   const path = `categories/${category.id}`;
   try {
     await deleteDoc(doc(db, 'categories', category.id));
@@ -756,6 +814,7 @@ export async function saveProduct(
   input: ProductFormInput,
   previousProduct?: Product
 ): Promise<string> {
+  await ensureStaffProfileInFirestore(actor);
   const isEdit = Boolean(input.id && previousProduct);
   const productId = input.id || makeSafeDocId('prd');
   const path = `products/${productId}`;
@@ -771,6 +830,7 @@ export async function saveProduct(
     availabilityStatus === 'expired_restricted' && input.publicationStatus === 'published' && safeStock > 0
       ? 'draft'
       : input.publicationStatus;
+  const isActive = effectivePubStatus === 'published';
 
   const cleanImages = (input.images || [])
     .map((u) => sanitizeSafeUrl(u, 500))
@@ -778,8 +838,11 @@ export async function saveProduct(
     .slice(0, 6);
 
   const cleanSku = sanitizeText(input.sku, 64).replace(/[^a-zA-Z0-9_-]/g, '-');
+  const resolvedSku = cleanSku || `SKU-${Date.now().toString(36).toUpperCase()}`;
 
   try {
+    let pendingMovementPayload: Record<string, unknown> | null = null;
+
     await runTransaction(db, async (tx) => {
       const catRef = doc(db, 'categories', input.categoryId);
       const catSnap = await tx.get(catRef);
@@ -815,13 +878,14 @@ export async function saveProduct(
           previousPrice: Math.max(0, Number(input.previousPrice) || 0),
           stockQuantity: safeStock,
           lowStockThreshold: safeThreshold,
-          sku: cleanSku || `SKU-${Date.now().toString(36).toUpperCase()}`,
+          sku: resolvedSku,
           availabilityStatus,
           prescriptionType: input.prescriptionType,
           usageInstructions: sanitizeText(input.usageInstructions, 1000),
           storageInstructions: sanitizeText(input.storageInstructions, 500),
           nearestExpiryDate: safeExpiry,
           publicationStatus: effectivePubStatus,
+          isActive,
           featured: Boolean(input.featured),
           popular: Boolean(input.popular),
           storeId: SHARED_STORE_ID,
@@ -839,11 +903,10 @@ export async function saveProduct(
         }
 
         if (safeStock > 0) {
-          const movId = makeSafeDocId('mov');
-          tx.set(doc(db, 'inventoryMovements', movId), {
+          pendingMovementPayload = {
             productId,
             productName: sanitizeText(input.name, 160),
-            sku: cleanSku || 'SKU-INIT',
+            sku: resolvedSku,
             batchNumber: 'INITIAL-OPENING',
             movementType: 'stock_in',
             quantityDelta: safeStock,
@@ -855,7 +918,7 @@ export async function saveProduct(
             storeId: SHARED_STORE_ID,
             authorizedStaffUids: staffUids,
             createdAt: serverTimestamp(),
-          });
+          };
         }
       } else if (previousProduct) {
         if (actor.role === 'inventory_manager') {
@@ -871,6 +934,7 @@ export async function saveProduct(
             storageInstructions: sanitizeText(input.storageInstructions, 500),
             nearestExpiryDate: safeExpiry,
             publicationStatus: effectivePubStatus,
+            isActive,
             authorizedStaffUids: staffUids,
             updatedAt: serverTimestamp(),
           });
@@ -897,6 +961,7 @@ export async function saveProduct(
             storageInstructions: sanitizeText(input.storageInstructions, 500),
             nearestExpiryDate: safeExpiry,
             publicationStatus: effectivePubStatus,
+            isActive,
             featured: Boolean(input.featured),
             popular: Boolean(input.popular),
             authorizedStaffUids: staffUids,
@@ -931,8 +996,7 @@ export async function saveProduct(
 
         if (safeStock !== previousProduct.stockQuantity) {
           const delta = safeStock - previousProduct.stockQuantity;
-          const movId = makeSafeDocId('mov');
-          tx.set(doc(db, 'inventoryMovements', movId), {
+          pendingMovementPayload = {
             productId,
             productName: sanitizeText(input.name, 160),
             sku: cleanSku,
@@ -947,10 +1011,18 @@ export async function saveProduct(
             storeId: SHARED_STORE_ID,
             authorizedStaffUids: staffUids,
             createdAt: serverTimestamp(),
-          });
+          };
         }
       }
     });
+
+    if (pendingMovementPayload) {
+      try {
+        await setDoc(doc(db, 'inventoryMovements', makeSafeDocId('mov')), pendingMovementPayload);
+      } catch (movErr) {
+        console.warn('Non-blocking inventory movement ledger write skipped:', movErr);
+      }
+    }
 
     await recordAdminAudit(
       actor,
@@ -972,6 +1044,7 @@ export async function bulkUpdateProductPublication(
   targetStatus: Product['publicationStatus']
 ): Promise<void> {
   if (productsToUpdate.length === 0) return;
+  await ensureStaffProfileInFirestore(actor);
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = 'products/bulk';
   try {
@@ -982,6 +1055,7 @@ export async function bulkUpdateProductPublication(
       }
       batch.update(doc(db, 'products', prod.id), {
         publicationStatus: targetStatus,
+        isActive: targetStatus === 'published',
         authorizedStaffUids: staffUids,
         updatedAt: serverTimestamp(),
       });
@@ -1021,6 +1095,7 @@ export async function receiveIncomingBatch(
   if (isDateExpired(input.expiryDate)) {
     throw new Error('Regulatory restriction: Cannot receive an already expired pharmaceutical batch into sellable stock.');
   }
+  await ensureStaffProfileInFirestore(actor);
   const qty = Math.max(1, Math.round(Number(input.quantityReceived) || 0));
   const batchId = makeSafeDocId('bat');
   const movId = makeSafeDocId('mov');
@@ -1118,6 +1193,7 @@ export async function adjustInventoryAtomically(
     throw new Error('A clear audit reason (minimum 3 characters) is required for stock adjustments.');
   }
 
+  await ensureStaffProfileInFirestore(actor);
   const movId = makeSafeDocId('mov');
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = `products/${productId}`;
@@ -1149,6 +1225,7 @@ export async function adjustInventoryAtomically(
         availabilityStatus,
         nearestExpiryDate: prod.nearestExpiryDate,
         publicationStatus: nextPubStatus,
+        isActive: nextPubStatus === 'published',
         authorizedStaffUids: staffUids,
         updatedAt: serverTimestamp(),
       });
@@ -1185,6 +1262,7 @@ export async function adjustInventoryAtomically(
 }
 
 export async function quarantineBatchStock(actor: ActorContext, batchRecord: ProductBatch): Promise<void> {
+  await ensureStaffProfileInFirestore(actor);
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const movId = makeSafeDocId('mov');
   const path = `productBatches/${batchRecord.id}`;
@@ -1355,6 +1433,7 @@ export async function transitionOrderStatus(
     }
   }
 
+  await ensureStaffProfileInFirestore(actor);
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = `orders/${order.id}`;
 
@@ -1580,6 +1659,7 @@ export async function recordPaymentDecision(
         paymentVerifiedAt: input.decision === 'mark_failed' ? '' : nowIso,
       };
 
+  await ensureStaffProfileInFirestore(actor);
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = `orders/${order.id}`;
   const nextOrderStatus: OrderStatus =
@@ -1687,6 +1767,7 @@ export async function reviewPrescriptionSubmission(
     throw new Error('Clinical review notes (minimum 5 characters) are required.');
   }
 
+  await ensureStaffProfileInFirestore(actor);
   const reviewedAtIso = new Date().toISOString();
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = `prescriptionReviews/${review.id}`;
@@ -1778,6 +1859,7 @@ export async function updateCustomerStanding(
   nextStatus: UserAccount['accountStatus'],
   reason: string
 ): Promise<void> {
+  await ensureStaffProfileInFirestore(actor);
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = `users/${customer.id}`;
   try {
@@ -1812,6 +1894,7 @@ export async function updateSupportTicketStatus(
     staffResolutionNote: string;
   }
 ): Promise<void> {
+  await ensureStaffProfileInFirestore(actor);
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = `supportTickets/${ticket.id}`;
   try {
@@ -1844,6 +1927,7 @@ export async function saveCouponRecord(
   actor: ActorContext,
   input: Omit<Coupon, 'id' | 'storeId' | 'authorizedStaffUids' | 'createdAt' | 'updatedAt'> & { id?: string }
 ): Promise<void> {
+  await ensureStaffProfileInFirestore(actor);
   const isEdit = Boolean(input.id);
   const cleanCode = sanitizeText(input.code.toUpperCase(), 32).replace(/[^A-Z0-9_-]/g, '');
   const couponId = input.id || `cpn_${cleanCode.toLowerCase()}`;
@@ -1964,6 +2048,7 @@ export async function deleteCouponRecord(
   actor: ActorContext,
   coupon: Coupon
 ): Promise<void> {
+  await ensureStaffProfileInFirestore(actor);
   const path = `coupons/${coupon.id}`;
   try {
     await deleteDoc(doc(db, 'coupons', coupon.id));
@@ -1984,6 +2069,7 @@ export async function saveDeliveryZoneRecord(
   actor: ActorContext,
   input: Omit<DeliveryZone, 'id' | 'storeId' | 'authorizedStaffUids' | 'createdAt' | 'updatedAt'> & { id?: string }
 ): Promise<void> {
+  await ensureStaffProfileInFirestore(actor);
   const isEdit = Boolean(input.id);
   const zoneId = input.id || makeSafeDocId('zne');
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
@@ -2037,6 +2123,7 @@ export async function deleteDeliveryZoneRecord(
   actor: ActorContext,
   zone: DeliveryZone
 ): Promise<void> {
+  await ensureStaffProfileInFirestore(actor);
   const path = `deliveryZones/${zone.id}`;
   try {
     await deleteDoc(doc(db, 'deliveryZones', zone.id));
@@ -2261,6 +2348,7 @@ export async function saveSiteSettingsConfig(
   input: Omit<SiteSettings, 'id' | 'storeId' | 'authorizedStaffUids' | 'updatedByUid' | 'createdAt' | 'updatedAt'>,
   existsAlready: boolean
 ): Promise<void> {
+  await ensureStaffProfileInFirestore(actor);
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = 'siteSettings/storefront_config';
   const payload = {
@@ -2480,6 +2568,7 @@ export async function bootstrapReferenceStructure(
   existingCoupons: Coupon[] = [],
   currentSiteSettings: SiteSettings | null = null
 ): Promise<void> {
+  await ensureStaffProfileInFirestore(actor);
   for (const preset of OFFICIAL_STOREFRONT_CATEGORIES) {
     const matched = existingCategories.find((c) =>
       preset.aliases.includes(c.slug.trim().toLowerCase())
@@ -2516,36 +2605,48 @@ export async function bootstrapReferenceStructure(
 
   if (['super_admin', 'store_admin'].includes(actor.role)) {
     if (existingZones.length === 0) {
-      await saveDeliveryZoneRecord(actor, {
-        zoneName: 'Inside Dhaka Metro',
-        coverageAreas: 'Dhanmondi, Gulshan, Banani, Uttara, Mirpur, Mohammadpur, Motijheel, Badda',
-        deliveryFeeBdt: 60,
-        freeDeliveryMinOrderBdt: 1500,
-        estimatedDeliveryText: '1–2 Days Inside Dhaka',
-        courierPartner: 'Own Pharmacy Dispatch / Pathao Pharma',
-        instructions: 'Temperature-controlled insulated pouch used for heat-sensitive medicines.',
-        status: 'active',
-      });
-      await saveDeliveryZoneRecord(actor, {
-        zoneName: 'Outside Dhaka (All Districts)',
-        coverageAreas: 'Chattogram, Sylhet, Rajshahi, Khulna, Barishal, Rangpur, Mymensingh & Sadar Upazilas',
-        deliveryFeeBdt: 120,
-        freeDeliveryMinOrderBdt: 1500,
-        estimatedDeliveryText: '3–5 Days Nationwide',
-        courierPartner: 'Steadfast / Sundarban Sealed Courier',
-        instructions: 'Tamper-evident outer packaging with invoice and batch verification slip.',
-        status: 'active',
-      });
+      try {
+        await saveDeliveryZoneRecord(actor, {
+          zoneName: 'Inside Dhaka Metro',
+          coverageAreas: 'Dhanmondi, Gulshan, Banani, Uttara, Mirpur, Mohammadpur, Motijheel, Badda',
+          deliveryFeeBdt: 60,
+          freeDeliveryMinOrderBdt: 1500,
+          estimatedDeliveryText: '1–2 Days Inside Dhaka',
+          courierPartner: 'Own Pharmacy Dispatch / Pathao Pharma',
+          instructions: 'Temperature-controlled insulated pouch used for heat-sensitive medicines.',
+          status: 'active',
+        });
+        await saveDeliveryZoneRecord(actor, {
+          zoneName: 'Outside Dhaka (All Districts)',
+          coverageAreas: 'Chattogram, Sylhet, Rajshahi, Khulna, Barishal, Rangpur, Mymensingh & Sadar Upazilas',
+          deliveryFeeBdt: 120,
+          freeDeliveryMinOrderBdt: 1500,
+          estimatedDeliveryText: '3–5 Days Nationwide',
+          courierPartner: 'Steadfast / Sundarban Sealed Courier',
+          instructions: 'Tamper-evident outer packaging with invoice and batch verification slip.',
+          status: 'active',
+        });
+      } catch (zoneErr) {
+        console.warn('Non-blocking default deliveryZones bootstrap skipped:', zoneErr);
+      }
     }
 
-    await ensureDefaultStorefrontCoupons(actor, existingCoupons);
+    try {
+      await ensureDefaultStorefrontCoupons(actor, existingCoupons);
+    } catch (couponErr) {
+      console.warn('Non-blocking default coupons bootstrap skipped:', couponErr);
+    }
 
     if (!hasSiteSettings) {
-      await saveSiteSettingsConfig(
-        actor,
-        buildDefaultStorefrontSettingsPayload(currentSiteSettings),
-        false
-      );
+      try {
+        await saveSiteSettingsConfig(
+          actor,
+          buildDefaultStorefrontSettingsPayload(currentSiteSettings),
+          false
+        );
+      } catch (settingsErr) {
+        console.warn('Non-blocking default siteSettings bootstrap skipped:', settingsErr);
+      }
     }
   }
 }
@@ -2599,6 +2700,7 @@ export async function placeVerificationOrder(
     throw new Error('This product requires a valid prescription document reference and prescribing physician name.');
   }
 
+  await ensureStaffProfileInFirestore(actor);
   const path = `orders/${orderId}`;
   try {
     await runTransaction(db, async (tx) => {

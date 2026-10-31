@@ -87,7 +87,7 @@ export function CustomersView() {
           </p>
         </div>
 
-        <div className="flex items-center gap-1 p-1 bg-[#EEF4F0] rounded-lg self-start">
+        <div className="flex items-center gap-1 p-1 bg-[#EEF4F0] rounded-lg self-start no-print">
           <button
             type="button"
             onClick={() => setTab('directory')}
@@ -110,7 +110,7 @@ export function CustomersView() {
       </div>
 
       {errorMsg && (
-        <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-4 text-sm text-[#991B1B] flex items-start gap-2.5">
+        <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-4 text-sm text-[#991B1B] flex items-start gap-2.5 no-print">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <span>{errorMsg}</span>
         </div>
@@ -118,7 +118,7 @@ export function CustomersView() {
 
       {tab === 'directory' ? (
         <>
-          <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 no-print">
             <div className="relative w-full sm:max-w-sm">
               <Search className="w-4 h-4 text-[#64748B] absolute left-3 top-3" />
               <input
@@ -156,7 +156,7 @@ export function CustomersView() {
                       <th className="py-3 px-4 text-right">Total Spend</th>
                       <th className="py-3 px-4">Account Standing</th>
                       <th className="py-3 px-4">Registered</th>
-                      <th className="py-3 px-6 text-right">Actions</th>
+                      <th className="py-3 px-6 text-right print-hide-col">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#EEF2F6] text-sm">
@@ -188,7 +188,7 @@ export function CustomersView() {
                         <td className="py-3 px-4 font-mono tabular-nums text-xs text-[#64748B]">
                           {formatTimestamp(c.createdAt)}
                         </td>
-                        <td className="py-3 px-6 text-right">
+                        <td className="py-3 px-6 text-right print-hide-col">
                           <div className="inline-flex items-center gap-2">
                             <button
                               type="button"
@@ -255,7 +255,7 @@ export function CustomersView() {
                     <th className="py-3 px-4">Subject &amp; Category</th>
                     <th className="py-3 px-4">Priority</th>
                     <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-6 text-right">Manage</th>
+                    <th className="py-3 px-6 text-right print-hide-col">Manage</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#EEF2F6] text-sm">
@@ -273,7 +273,7 @@ export function CustomersView() {
                       <td className="py-3 px-4 text-xs capitalize font-medium text-[#0F172A]">
                         {t.status.replace(/_/g, ' ')}
                       </td>
-                      <td className="py-3 px-6 text-right">
+                      <td className="py-3 px-6 text-right print-hide-col">
                         {permissions?.canManageSupport && (
                           <button
                             type="button"
@@ -300,7 +300,7 @@ export function CustomersView() {
 
       {/* Customer Profile & Order History Modal */}
       {selectedCustomer && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 no-print">
           <div className="bg-white border border-[#E6ECEF] rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-5">
             <div className="flex items-start justify-between border-b border-[#EEF2F6] pb-3">
               <div>

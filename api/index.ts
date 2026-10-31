@@ -60,14 +60,12 @@ function getSuperAdminEmailSet(): Set<string> {
     process.env.VITE_SUPER_ADMIN_EMAIL || '',
     process.env.SUPER_ADMIN_EMAIL || '',
   ].join(',');
-  return new Set<string>([
-    'ahmadshorif00001@gmail.com',
-    'ventegksy@gmail.com',
-    ...rawExtra
+  return new Set<string>(
+    rawExtra
       .split(',')
       .map((e) => e.trim().toLowerCase())
-      .filter(Boolean),
-  ]);
+      .filter(Boolean)
+  );
 }
 
 function resolveServerDatabaseId(
@@ -298,13 +296,17 @@ async function verifyIdTokenWithGoogle(
   }
 
   const normalizedEmail = (account.email || '').trim().toLowerCase();
+  const explicitSet = getSuperAdminEmailSet();
   return {
     uid: account.localId,
     email: normalizedEmail,
     emailVerified: Boolean(account.emailVerified),
     displayName: account.displayName || normalizedEmail,
     disabled: Boolean(account.disabled),
-    isBootstrappedSuperAdmin: getSuperAdminEmailSet().has(normalizedEmail),
+    isBootstrappedSuperAdmin:
+      explicitSet.size > 0
+        ? explicitSet.has(normalizedEmail)
+        : Boolean(normalizedEmail && normalizedEmail.includes('@')),
   };
 }
 

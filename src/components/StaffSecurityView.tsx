@@ -299,7 +299,7 @@ export function StaffSecurityView() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap no-print">
           <div className="inline-flex bg-white border border-[#E6ECEF] rounded-lg p-1">
             <button
               type="button"
@@ -366,14 +366,14 @@ export function StaffSecurityView() {
       </div>
 
       {errorMsg && (
-        <div className="bg-white border border-[#FCA5A5] rounded-xl p-4 flex items-start gap-3">
+        <div className="bg-white border border-[#FCA5A5] rounded-xl p-4 flex items-start gap-3 no-print">
           <AlertCircle className="w-5 h-5 text-[#DC2626] shrink-0 mt-0.5" />
           <p className="text-sm text-[#991B1B]">{errorMsg}</p>
         </div>
       )}
 
       {successMsg && (
-        <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 flex items-center justify-between gap-3">
+        <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 flex items-center justify-between gap-3 no-print">
           <div className="flex items-center gap-2.5 text-sm text-[#15803D]">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{successMsg}</span>
@@ -432,7 +432,7 @@ export function StaffSecurityView() {
       </div>
 
       {/* Firebase Cloud Messaging Web Push (VAPID Key Pair) Card */}
-      <div className="bg-white border border-[#E6ECEF] rounded-xl p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="bg-white border border-[#E6ECEF] rounded-xl p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 no-print">
         <div className="flex items-start gap-3 min-w-0">
           <Bell className="w-5 h-5 text-[#0D7E74] shrink-0 mt-0.5" />
           <div className="space-y-1 min-w-0">
@@ -627,7 +627,7 @@ export function StaffSecurityView() {
                   <th className="py-3 px-4">Clinical License</th>
                   <th className="py-3 px-4">Standing</th>
                   <th className="py-3 px-4">Updated</th>
-                  <th className="py-3 px-6 text-right">Actions</th>
+                  <th className="py-3 px-6 text-right print-hide-col">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#EEF2F6] text-sm">
@@ -669,7 +669,7 @@ export function StaffSecurityView() {
                       <td className="py-4 px-4 text-xs font-mono tabular-nums text-[#64748B]">
                         {formatTimestamp(m.updatedAt)}
                       </td>
-                      <td className="py-4 px-6 text-right">
+                      <td className="py-4 px-6 text-right print-hide-col">
                         {canEditRow ? (
                           <button
                             type="button"
@@ -765,7 +765,7 @@ export function StaffSecurityView() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap no-print">
               <div className="relative">
                 <Search className="w-3.5 h-3.5 text-[#64748B] absolute left-3 top-1/2 -translate-y-1/2" />
                 <input

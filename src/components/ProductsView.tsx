@@ -18,6 +18,7 @@ import { useAuth } from '../context/AuthContext';
 import { useStoreData } from '../context/StoreDataContext';
 import { formatBdt, formatTimestamp } from '../lib/validation';
 import {
+  bootstrapReferenceStructure,
   bulkUpdateProductPublication,
   OFFICIAL_STOREFRONT_CATEGORIES,
   saveProduct,
@@ -56,7 +57,7 @@ const EMPTY_PRODUCT_FORM: ProductFormInput = {
 
 export function ProductsView() {
   const { permissions } = useAuth();
-  const { actor, products, categories } = useStoreData();
+  const { actor, products, categories, siteSettings, deliveryZones, coupons } = useStoreData();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -199,6 +200,26 @@ export function ProductsView() {
     }
   };
 
+  const handleInitOfficialCategories = async () => {
+    if (!actor) return;
+    setErrorMsg(null);
+    setSaving(true);
+    try {
+      await bootstrapReferenceStructure(
+        actor,
+        categories,
+        Boolean(siteSettings),
+        deliveryZones,
+        coupons,
+        siteSettings
+      );
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to initialize official categories.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -216,7 +237,7 @@ export function ProductsView() {
             type="button"
             disabled={categories.length === 0}
             onClick={openCreateModal}
-            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-[#0D7E74] hover:bg-[#086058] disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-[#0D7E74] hover:bg-[#086058] disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap shrink-0 no-print"
           >
             <Plus className="w-4 h-4" />
             <span>Add Product</span>
@@ -225,23 +246,44 @@ export function ProductsView() {
       </div>
 
       {categories.length === 0 && (
-        <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-xl p-4 text-sm text-[#92400E] flex items-center gap-2.5">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span>
-            Create at least one category in <strong>Categories</strong> (or initialize official categories from Overview) before adding products.
-          </span>
+        <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-xl p-4 text-sm text-[#92400E] flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>
+              Create at least one category in <strong>Categories</strong> (or initialize official categories here) before adding products.
+            </span>
+          </div>
+          {permissions?.canManageCatalog && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void handleInitOfficialCategories()}
+              className="px-3.5 py-1.5 text-xs font-semibold text-white bg-[#D97706] hover:bg-[#B45309] disabled:opacity-50 rounded-lg whitespace-nowrap shrink-0"
+            >
+              {saving ? 'Initializing...' : 'Initialize Official Categories'}
+            </button>
+          )}
         </div>
       )}
 
       {errorMsg && (
-        <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-4 text-sm text-[#991B1B] flex items-start gap-2.5">
-          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>{errorMsg}</span>
+        <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-4 text-sm text-[#991B1B] flex items-start justify-between gap-3 no-print">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span className="min-w-0 break-all">{errorMsg}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setErrorMsg(null)}
+            className="text-xs text-[#991B1B] hover:underline whitespace-nowrap shrink-0"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
       {/* Search & Multi-Facet Filter Bar */}
-      <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 space-y-3">
+      <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 space-y-3 no-print">
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
           <div className="xl:col-span-2 relative">
             <Search className="w-4 h-4 text-[#64748B] absolute left-3 top-3" />
@@ -405,7 +447,7 @@ export function ProductsView() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-[#EEF2F6] bg-[#F9FBFA] text-xs font-medium text-[#64748B]">
-                  <th className="py-3 px-4 w-10">
+                  <th className="py-3 px-4 w-10 print-hide-col">
                     <input
                       type="checkbox"
                       aria-label="Select all visible products"
@@ -430,7 +472,7 @@ export function ProductsView() {
                   <th className="py-3 px-4 text-right">Price (BDT)</th>
                   <th className="py-3 px-4 text-right">Stock</th>
                   <th className="py-3 px-4">Publication</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
+                  <th className="py-3 px-4 text-right print-hide-col">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#EEF2F6] text-sm">
@@ -438,7 +480,7 @@ export function ProductsView() {
                   const primaryImg = prod.images?.[0] || '';
                   return (
                     <tr key={prod.id} className="hover:bg-[#F7FAF8]">
-                      <td className="py-3 px-4">
+                      <td className="py-3 px-4 print-hide-col">
                         <input
                           type="checkbox"
                           aria-label={`Select ${prod.name}`}
@@ -451,7 +493,7 @@ export function ProductsView() {
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg border border-[#E6ECEF] bg-[#F4F8F6] overflow-hidden flex items-center justify-center shrink-0">
+                          <div className="w-10 h-10 rounded-lg border border-[#E6ECEF] bg-[#F4F8F6] overflow-hidden flex items-center justify-center shrink-0 no-print">
                             {primaryImg ? (
                               <img
                                 src={primaryImg}
@@ -532,7 +574,7 @@ export function ProductsView() {
                           </span>
                         )}
                       </td>
-                      <td className="py-3 px-4 text-right">
+                      <td className="py-3 px-4 text-right print-hide-col">
                         <div className="inline-flex items-center gap-2">
                           <button
                             type="button"
@@ -572,7 +614,7 @@ export function ProductsView() {
               type="button"
               disabled={currentPage <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="p-1.5 border border-[#E6ECEF] rounded-md disabled:opacity-40"
+              className="p-1.5 border border-[#E6ECEF] rounded-md disabled:opacity-40 no-print"
               aria-label="Previous page"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -584,7 +626,7 @@ export function ProductsView() {
               type="button"
               disabled={currentPage >= totalPages}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              className="p-1.5 border border-[#E6ECEF] rounded-md disabled:opacity-40"
+              className="p-1.5 border border-[#E6ECEF] rounded-md disabled:opacity-40 no-print"
               aria-label="Next page"
             >
               <ChevronRight className="w-4 h-4" />
@@ -595,7 +637,7 @@ export function ProductsView() {
 
       {/* Product Detail Drawer / Dialog */}
       {detailProduct && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 no-print">
           <div className="bg-white border border-[#E6ECEF] rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-5">
             <div className="flex items-start justify-between gap-4 border-b border-[#EEF2F6] pb-4">
               <div>

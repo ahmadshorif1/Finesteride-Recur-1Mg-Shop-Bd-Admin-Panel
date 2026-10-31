@@ -18,6 +18,7 @@ import {
   Menu,
   MessageSquareText,
   Pill,
+  Printer,
   Search,
   ShoppingBag,
   Sparkles,
@@ -132,6 +133,7 @@ function AdminWorkspaceShell() {
     prescriptionReviews,
     customers,
     supportTickets,
+    siteSettings,
   } = useStoreData();
 
   const [activeModule, setActiveModule] = useState<AdminModuleKey>('overview');
@@ -377,7 +379,7 @@ function AdminWorkspaceShell() {
   );
 
   return (
-    <div className="min-h-screen bg-[#F4F7F8] text-[#0F172A] flex">
+    <div className="min-h-screen bg-[#F4F7F8] text-[#0F172A] flex print-shell">
       {/* Desktop Persistent Sidebar */}
       <aside className="hidden lg:flex lg:w-[256px] lg:flex-col lg:fixed lg:inset-y-0 border-r border-[#E6ECEF] bg-white z-20 no-print">
         {renderSidebarNavigation()}
@@ -398,9 +400,9 @@ function AdminWorkspaceShell() {
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 lg:pl-[256px] flex flex-col min-w-0">
+      <div className="flex-1 lg:pl-[256px] flex flex-col min-w-0 print-content-col">
         {/* Top Bar matching uploaded PharmaCore ERP Header */}
-        <header className="h-[72px] bg-white border-b border-[#E6ECEF] px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4 sticky top-0 z-20 no-print">
+        <header className="app-top-header h-[72px] bg-white border-b border-[#E6ECEF] px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4 sticky top-0 z-20 no-print">
           {/* Left: Mobile Drawer Trigger + Active Module Heading */}
           <div className="flex items-center gap-3 min-w-0">
             <button
@@ -578,20 +580,27 @@ function AdminWorkspaceShell() {
 
             <div className="h-6 w-px bg-[#E6ECEF] hidden sm:block" />
 
+            {/* One-Click Physical A4 Print Trigger */}
+            <button
+              type="button"
+              onClick={() => window.print()}
+              title={t('ভৌত রেকর্ড সংরক্ষণের জন্য A4 প্রিন্ট করুন', 'Print simplified A4 physical record')}
+              aria-label="Print A4 physical record"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#0F172A] bg-[#F4F7F8] hover:bg-[#E7F1F0] border border-[#E6ECEF] rounded-xl transition-colors whitespace-nowrap shrink-0"
+            >
+              <Printer className="w-3.5 h-3.5 text-[#0D7E74]" />
+              <span className="hidden xl:inline">{language === 'bn' ? 'প্রিন্ট (A4)' : 'Print A4'}</span>
+            </button>
+
             {/* Language Toggle Button (Bangla / English) */}
-            {(() => {
-              const { language, toggleLanguage } = useLanguage();
-              return (
-                <button
-                  type="button"
-                  onClick={toggleLanguage}
-                  className="px-3 py-1.5 text-xs font-bold text-[#0D7E74] bg-[#F0FDFA] border border-[#CCFBF1] hover:bg-[#E0F7F5] rounded-xl transition-colors whitespace-nowrap shrink-0"
-                  title="Switch Language (ভাষা পরিবর্তন করুন)"
-                >
-                  {language === 'bn' ? 'English 🌐' : 'বাংলা 🌐'}
-                </button>
-              );
-            })()}
+            <button
+              type="button"
+              onClick={toggleLanguage}
+              className="px-3 py-1.5 text-xs font-bold text-[#0D7E74] bg-[#F0FDFA] border border-[#CCFBF1] hover:bg-[#E0F7F5] rounded-xl transition-colors whitespace-nowrap shrink-0"
+              title="Switch Language (ভাষা পরিবর্তন করুন)"
+            >
+              {language === 'bn' ? 'English 🌐' : 'বাংলা 🌐'}
+            </button>
 
             {/* Admin Profile Dropdown */}
             <div ref={profileRef} className="relative">
@@ -661,7 +670,46 @@ function AdminWorkspaceShell() {
         </header>
 
         {/* Active Module Viewport */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-7 max-w-[1440px] w-full mx-auto">
+        <main className="print-main flex-1 p-4 sm:p-6 lg:p-7 max-w-[1440px] w-full mx-auto">
+          {/* A4 Physical Record-Keeping Masthead (Visible Exclusively in Print) */}
+          <div className="print-only print-ledger-header">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-base font-bold text-[#0F172A] tracking-tight">
+                  {siteSettings?.siteName || 'Finesteride Recur 1Mg Shop Bd'} — Physical Record Ledger
+                </div>
+                <div className="text-xs font-semibold text-[#334155] mt-0.5">
+                  Module Register: {activeNavMeta.headerTitle}
+                </div>
+                <div className="text-[10px] font-mono text-[#475569] mt-0.5">
+                  Store Tenant: finesteride-recur-bd
+                  {siteSettings?.pharmacyLicenseNo
+                    ? ` · Drug License: ${siteSettings.pharmacyLicenseNo}`
+                    : ''}
+                  {siteSettings?.supportPhone ? ` · Contact: ${siteSettings.supportPhone}` : ''}
+                </div>
+              </div>
+              <div className="text-right text-[10px] font-mono text-[#334155]">
+                <div>
+                  Printed:{' '}
+                  {new Date().toLocaleString('en-GB', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </div>
+                <div>
+                  Operator: {fullDisplayIdentity} ({roleLabel})
+                </div>
+                {staffProfile?.licenseNumber && (
+                  <div>BPC Reg: {staffProfile.licenseNumber}</div>
+                )}
+              </div>
+            </div>
+          </div>
+
           {livePushAlert && (
             <div className="mb-4 bg-white border border-[#0D7E74]/30 rounded-xl p-4 flex items-start justify-between gap-3 shadow-xs no-print">
               <div className="flex items-start gap-3 min-w-0">
@@ -695,6 +743,24 @@ function AdminWorkspaceShell() {
           {activeModule === 'promotions_cms' && <PromotionsCmsView />}
           {activeModule === 'staff_security' && <StaffSecurityView />}
           {activeModule === 'reports_qa' && <ReportsQaView />}
+
+          {/* A4 Physical Binder Verification & Signature Block (Visible Exclusively in Print) */}
+          <div className="print-only print-ledger-footer">
+            <div className="grid grid-cols-3 gap-8 text-[10px] text-[#334155]">
+              <div className="pt-6 border-t border-[#64748B]">
+                <div className="font-semibold text-[#0F172A]">Prepared By</div>
+                <div>{fullDisplayIdentity} ({roleLabel})</div>
+              </div>
+              <div className="pt-6 border-t border-[#64748B]">
+                <div className="font-semibold text-[#0F172A]">Verified Pharmacist Signature &amp; BPC Reg</div>
+                <div>{staffProfile?.licenseNumber || 'BPC Reg # ___________________'}</div>
+              </div>
+              <div className="pt-6 border-t border-[#64748B]">
+                <div className="font-semibold text-[#0F172A]">Physical Ledger Filing Stamp &amp; Date</div>
+                <div>Binder Ref: ___________________</div>
+              </div>
+            </div>
+          </div>
         </main>
       </div>
 

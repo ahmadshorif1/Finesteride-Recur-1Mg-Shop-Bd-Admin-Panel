@@ -406,7 +406,7 @@ export function CategoriesView({ onNavigate }: CategoriesViewProps) {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5 no-print">
           {permissions?.canManageCategories && (
             <button
               type="button"
@@ -450,7 +450,7 @@ export function CategoriesView({ onNavigate }: CategoriesViewProps) {
 
       {/* Missing Official Category Notice */}
       {missingOfficialCount > 0 && permissions?.canManageCategories && (
-        <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
           <div className="text-xs text-[#92400E] leading-relaxed">
             <strong>Storefront Category Sync Needed:</strong> {missingOfficialCount} of the 5 core storefront categories (ঔষধ, হারবাল পণ্য, ভিটামিন ও সাপ্লিমেন্ট, স্বাস্থ্যসামগ্রী, স্কিন কেয়ার) are not yet initialized in Firestore.
           </div>
@@ -466,10 +466,10 @@ export function CategoriesView({ onNavigate }: CategoriesViewProps) {
       )}
 
       {errorMsg && (
-        <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-4 text-sm text-[#991B1B] flex items-start justify-between gap-3">
-          <div className="flex items-start gap-2.5">
+        <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-4 text-sm text-[#991B1B] flex items-start justify-between gap-3 no-print">
+          <div className="flex items-start gap-2.5 min-w-0">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{errorMsg}</span>
+            <span className="min-w-0 break-all">{errorMsg}</span>
           </div>
           <button
             type="button"
@@ -482,7 +482,7 @@ export function CategoriesView({ onNavigate }: CategoriesViewProps) {
       )}
 
       {successMsg && (
-        <div className="bg-[#F0FDFA] border border-[#99F6E4] rounded-xl p-4 text-sm text-[#0F766E] flex items-center justify-between gap-3">
+        <div className="bg-[#F0FDFA] border border-[#99F6E4] rounded-xl p-4 text-sm text-[#0F766E] flex items-center justify-between gap-3 no-print">
           <div className="flex items-center gap-2.5">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{successMsg}</span>
@@ -498,7 +498,7 @@ export function CategoriesView({ onNavigate }: CategoriesViewProps) {
       )}
 
       {/* Module Sub-Navigation Tabs */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-[#E6ECEF] rounded-xl p-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-[#E6ECEF] rounded-xl p-2 no-print">
         <div className="flex flex-wrap items-center gap-1">
           <button
             type="button"
@@ -554,7 +554,7 @@ export function CategoriesView({ onNavigate }: CategoriesViewProps) {
       {/* TAB 1: CATEGORIES & SUBCATEGORIES TABLE */}
       {activeTab === 'categories' && (
         <div className="bg-white border border-[#E6ECEF] rounded-xl overflow-hidden">
-          <div className="p-4 border-b border-[#EEF2F6] flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="p-4 border-b border-[#EEF2F6] flex flex-col md:flex-row md:items-center justify-between gap-3 no-print">
             <div className="relative flex-1 max-w-md">
               <Search className="w-4 h-4 text-[#64748B] absolute left-3 top-2.5" />
               <input
@@ -611,7 +611,7 @@ export function CategoriesView({ onNavigate }: CategoriesViewProps) {
                     <th className="py-3 px-4">Green Navbar Placement</th>
                     <th className="py-3 px-4 text-right">Products</th>
                     <th className="py-3 px-4">Visibility</th>
-                    <th className="py-3 px-6 text-right">Actions</th>
+                    <th className="py-3 px-6 text-right print-hide-col">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#EEF2F6] text-sm">
@@ -629,7 +629,7 @@ export function CategoriesView({ onNavigate }: CategoriesViewProps) {
                           <div className="flex items-center gap-1.5">
                             <span className="w-7">#{cat.displayOrder}</span>
                             {permissions?.canManageCategories && (
-                              <div className="inline-flex items-center gap-0.5">
+                              <div className="inline-flex items-center gap-0.5 no-print">
                                 <button
                                   type="button"
                                   disabled={idx === 0 || busyActionId === `ord_${cat.id}`}
@@ -663,10 +663,10 @@ export function CategoriesView({ onNavigate }: CategoriesViewProps) {
                                 src={cat.imageUrl}
                                 alt={cat.name}
                                 referrerPolicy="no-referrer"
-                                className="w-9 h-9 rounded-lg object-cover border border-[#E6ECEF] shrink-0"
+                                className="w-9 h-9 rounded-lg object-cover border border-[#E6ECEF] shrink-0 no-print"
                               />
                             ) : (
-                              <div className="w-9 h-9 rounded-lg bg-[#F0FDFA] border border-[#CCFBF1] text-[#0D7E74] text-[11px] font-mono font-semibold flex items-center justify-center shrink-0">
+                              <div className="w-9 h-9 rounded-lg bg-[#F0FDFA] border border-[#CCFBF1] text-[#0D7E74] text-[11px] font-mono font-semibold flex items-center justify-center shrink-0 no-print">
                                 {(cat.iconName || 'CAT').slice(0, 3).toUpperCase()}
                               </div>
                             )}
@@ -767,7 +767,7 @@ export function CategoriesView({ onNavigate }: CategoriesViewProps) {
                           )}
                         </td>
 
-                        <td className="py-3 px-6 text-right">
+                        <td className="py-3 px-6 text-right print-hide-col">
                           <div className="inline-flex items-center gap-1.5">
                             {!cat.parentCategoryId && permissions?.canManageCategories && (
                               <button
@@ -829,7 +829,7 @@ export function CategoriesView({ onNavigate }: CategoriesViewProps) {
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3 no-print">
               <label className="inline-flex items-center gap-2 text-xs text-[#475569] cursor-pointer">
                 <input
                   type="checkbox"
@@ -865,7 +865,7 @@ export function CategoriesView({ onNavigate }: CategoriesViewProps) {
                 <button
                   type="button"
                   onClick={() => onNavigate('products')}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-[#0D7E74] hover:bg-[#086058] rounded-lg whitespace-nowrap shrink-0"
+                  className="px-4 py-2 text-xs font-semibold text-white bg-[#0D7E74] hover:bg-[#086058] rounded-lg whitespace-nowrap shrink-0 no-print"
                 >
                   Open Medicine Catalog
                 </button>
@@ -880,7 +880,7 @@ export function CategoriesView({ onNavigate }: CategoriesViewProps) {
                     <th className="py-3 px-4">Assigned Categories</th>
                     <th className="py-3 px-4 text-right">Published / Total SKUs</th>
                     <th className="py-3 px-4 text-right">Sellable Units</th>
-                    <th className="py-3 px-6 text-right">Brand Controls</th>
+                    <th className="py-3 px-6 text-right print-hide-col">Brand Controls</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#EEF2F6] text-sm">
@@ -901,7 +901,7 @@ export function CategoriesView({ onNavigate }: CategoriesViewProps) {
                       <td className="py-3.5 px-4 text-right font-mono tabular-nums font-semibold text-[#0F172A]">
                         {row.totalUnits.toLocaleString('en-BD')}
                       </td>
-                      <td className="py-3.5 px-6 text-right">
+                      <td className="py-3.5 px-6 text-right print-hide-col">
                         <div className="inline-flex items-center gap-2">
                           {row.totalSkus > 0 && permissions?.canEditPricing && (
                             <>

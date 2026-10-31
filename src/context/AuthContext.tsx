@@ -16,7 +16,7 @@ import {
   verifyPasswordResetCode,
   type User,
 } from 'firebase/auth';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import {
   auth,
   db,
@@ -207,6 +207,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authError, setAuthError] = useState<string | null>(null);
   const [pendingResetActionUrl, setPendingResetActionUrl] = useState<string | null>(null);
   const staffUnsubRef = React.useRef<(() => void) | null>(null);
+  const autoProvisioningRef = React.useRef<Set<string>>(new Set());
   const handledInitialUrlRef = React.useRef(false);
 
   const attachStaffProfileListener = React.useCallback((uid: string) => {
@@ -218,7 +219,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const staffRef = doc(db, 'staffMembers', uid);
     staffUnsubRef.current = onSnapshot(
       staffRef,
-      (snap) => {
+      async (snap) => {
         if (snap.exists()) {
           setStaffProfile({
             id: snap.id,
@@ -230,25 +231,89 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         const current = auth.currentUser;
-        if (current && current.uid === uid && isBootstrappedSuperAdminEmail(current.email)) {
-          setStaffProfile({
-            id: uid,
-            uid: uid,
-            email: current.email || '',
-            displayName: current.displayName || 'Chief Pharmacy Administrator',
-            role: 'super_admin',
-            status: 'active',
-            department: 'Executive & Clinical Governance',
-            licenseNumber: 'BPC-REG-0001',
-            storeId: SHARED_STORE_ID,
-            authorizedStaffUids: [uid],
-            createdBy: uid,
-            createdAt: new Date() as unknown as import('firebase/firestore').Timestamp,
-            updatedAt: new Date() as unknown as import('firebase/firestore').Timestamp,
-          });
-          setStaffLoading(false);
-          setAuthReady(true);
-          return;
+        if (
+          current &&
+          current.uid === uid &&
+          current.emailVerified &&
+          isBootstrappedSuperAdminEmail(current.email)
+        ) {
+          if (autoProvisioningRef.current.has(uid)) {
+            return;
+          }
+          autoProvisioningRef.current.add(uid);
+          try {
+            await current.getIdToken(true);
+
+            const checkSnap = await getDoc(staffRef);
+            if (checkSnap.exists()) {
+              setStaffProfile({
+                id: checkSnap.id,
+                ...(checkSnap.data() as Omit<StaffMember, 'id'>),
+              });
+              setAuthError(null);
+              setStaffLoading(false);
+              setAuthReady(true);
+              return;
+            }
+
+            const cleanEmail = (current.email || '').trim().toLowerCase();
+            const cleanName = (
+              current.displayName ||
+              cleanEmail.split('@')[0] ||
+              'Chief Pharmacy Administrator'
+            )
+              .trim()
+              .slice(0, 120);
+
+            await setDoc(staffRef, {
+              uid,
+              email: cleanEmail,
+              displayName: cleanName,
+              role: 'super_admin',
+              status: 'active',
+              department: 'Executive & Clinical Governance',
+              licenseNumber: 'BPC-REG-0001',
+              storeId: SHARED_STORE_ID,
+              authorizedStaffUids: [uid],
+              createdBy: uid,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+
+            const createdSnap = await getDoc(staffRef);
+            if (createdSnap.exists()) {
+              setStaffProfile({
+                id: createdSnap.id,
+                ...(createdSnap.data() as Omit<StaffMember, 'id'>),
+              });
+            }
+            setAuthError(null);
+            setStaffLoading(false);
+            setAuthReady(true);
+            return;
+          } catch (provisionErr) {
+            autoProvisioningRef.current.delete(uid);
+            const rawMsg =
+              provisionErr instanceof Error ? provisionErr.message : String(provisionErr);
+            const { projectId } = getFirebaseProjectInfo();
+            if (
+              rawMsg.includes('Missing or insufficient permissions') ||
+              rawMsg.includes('PERMISSION_DENIED') ||
+              rawMsg.includes('permission-denied')
+            ) {
+              setAuthError(
+                `Firebase প্রজেক্ট "${projectId}"-এ আপডেটকৃত firestore.rules এখনো Publish করা হয়নি বলে /staffMembers/${uid} প্রোফাইল সংরক্ষণ করা যায়নি। নিচে "Copy firestore.rules" বাটনে ক্লিক করে কোডটি কপি করুন, Firebase Console -> Firestore Database -> Rules-এ পেস্ট করে Publish চাপুন, তারপর "Activate Super Admin Access" বাটনে ক্লিক করুন।`
+              );
+            } else {
+              setAuthError(
+                rawMsg || 'Could not initialize /staffMembers administrator profile in Firestore.'
+              );
+            }
+            setStaffProfile(null);
+            setStaffLoading(false);
+            setAuthReady(true);
+            return;
+          }
         }
 
         setStaffProfile(null);
@@ -256,27 +321,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthReady(true);
       },
       (err) => {
-        console.error('Staff profile listener error:', err);
-        const current = auth.currentUser;
-        if (current && current.uid === uid && isBootstrappedSuperAdminEmail(current.email)) {
-          setStaffProfile({
-            id: uid,
-            uid: uid,
-            email: current.email || '',
-            displayName: current.displayName || 'Chief Pharmacy Administrator',
-            role: 'super_admin',
-            status: 'active',
-            department: 'Executive & Clinical Governance',
-            licenseNumber: 'BPC-REG-0001',
-            storeId: SHARED_STORE_ID,
-            authorizedStaffUids: [uid],
-            createdBy: uid,
-            createdAt: new Date() as unknown as import('firebase/firestore').Timestamp,
-            updatedAt: new Date() as unknown as import('firebase/firestore').Timestamp,
-          });
+        const rawMsg = err instanceof Error ? err.message : String(err);
+        const { projectId } = getFirebaseProjectInfo();
+        if (
+          rawMsg.includes('Missing or insufficient permissions') ||
+          rawMsg.includes('PERMISSION_DENIED') ||
+          rawMsg.includes('permission-denied')
+        ) {
+          setAuthError(
+            `Firebase প্রজেক্ট "${projectId}"-এ আপডেটকৃত firestore.rules এখনো Publish করা হয়নি। নিচে "Copy firestore.rules" বাটনে ক্লিক করে কোডটি কপি করুন এবং Firebase Console -> Firestore Database -> Rules-এ পেস্ট করে Publish চাপুন।`
+          );
         } else {
-          setStaffProfile(null);
+          setAuthError(rawMsg || 'Firestore permission denied while reading /staffMembers.');
         }
+        setStaffProfile(null);
         setStaffLoading(false);
         setAuthReady(true);
       }
@@ -324,6 +382,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setPendingResetActionUrl(null);
+
+      if (!firebaseUser.emailVerified) {
+        setStaffLoading(false);
+        setAuthReady(true);
+        return;
+      }
+
       setStaffLoading(true);
       try {
         await verifyServerSession();
@@ -331,7 +396,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthError(null);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : 'Server identity verification failed.';
-        console.error('Server session verification failed:', errMsg);
+        console.warn('Server session verification failed:', errMsg);
         setServerVerified(false);
         setAuthError(errMsg);
       }
@@ -365,17 +430,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isSuspendedStaff = Boolean(staffProfile && staffProfile.status === 'suspended');
 
-  const effectiveRole: StaffRole | null = isBootstrappedSuperAdmin
-    ? 'super_admin'
-    : staffProfile && staffProfile.status === 'active'
-    ? staffProfile.role
-    : null;
+  const effectiveRole: StaffRole | null =
+    staffProfile && staffProfile.status === 'active'
+      ? staffProfile.role
+      : isBootstrappedSuperAdmin
+      ? 'super_admin'
+      : null;
 
   const isAuthorizedStaff = Boolean(
     user &&
+      user.emailVerified &&
       serverVerified &&
       !isSuspendedStaff &&
-      (isBootstrappedSuperAdmin || (staffProfile && staffProfile.status === 'active') || true)
+      staffProfile &&
+      staffProfile.status === 'active'
   );
 
   const needsSuperAdminBootstrap = Boolean(
@@ -620,27 +688,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         licenseNumber,
       });
       attachStaffProfileListener(user.uid);
-    } catch {
-      // Graceful local fallback if Firestore security rules are not yet published
-      setStaffProfile({
-        id: user.uid,
-        uid: user.uid,
-        email: user.email || '',
-        displayName,
-        role: 'super_admin',
-        status: 'active',
-        department: 'Executive & Clinical Governance',
-        licenseNumber,
-        storeId: SHARED_STORE_ID,
-        authorizedStaffUids: [user.uid],
-        createdBy: user.uid,
-        createdAt: new Date() as unknown as import('firebase/firestore').Timestamp,
-        updatedAt: new Date() as unknown as import('firebase/firestore').Timestamp,
-      });
+    } catch (err) {
+      setAuthError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to create /staffMembers administrator profile in Firestore.'
+      );
+      throw err;
     }
   };
 
   const logoutAdmin = async () => {
+    autoProvisioningRef.current.clear();
     setAuthError(null);
     setPendingResetActionUrl(null);
     await signOut(auth);

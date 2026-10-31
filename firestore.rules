@@ -8,7 +8,7 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // SHARED PRIMITIVES & RBAC HELPERS
+    // SHARED PRIMITIVES & RBAC HELPERS (100% UID-BASED, NO HARDCODED EMAILS)
     // =========================================================================
     function isValidId(id) {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
@@ -20,122 +20,234 @@ service cloud.firestore {
     function isVerifiedUser() { return isSignedIn() && request.auth.token.email_verified == true; }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
     function isVerifiedOwner(userId) { return isVerifiedUser() && request.auth.uid == userId; }
-    
-    // Admin Check: Consolidated based on UID in admins/staffMembers collections
+
+    function isActiveStaffDoc() {
+      return exists(/databases/$(database)/documents/staffMembers/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/staffMembers/$(request.auth.uid)).data.get('status', 'active') == 'active';
+    }
+
     function isAdmin() {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        exists(/databases/$(database)/documents/staffMembers/$(request.auth.uid))
+        isActiveStaffDoc()
       );
     }
-    
+
     function isSuperAdmin() {
-      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (isActiveStaffDoc() &&
+          get(/databases/$(database)/documents/staffMembers/$(request.auth.uid)).data.get('role', '') == 'super_admin')
+      );
+    }
+
+    function isDocCustomerOwner(data) {
+      return isSignedIn() && (
+        data.get('customerId', '') == request.auth.uid ||
+        data.get('userId', '') == request.auth.uid
+      );
+    }
+
+    function isPublishedCatalogDoc(data) {
+      return data.get('isActive', false) == true ||
+        data.get('publicationStatus', '') == 'published';
     }
 
     // =========================================================================
-    // COLLECTION MATCH BLOCKS
+    // COLLECTION MATCH BLOCKS (UNIFIED ADMIN PANEL + CUSTOMER PANEL)
     // =========================================================================
 
-    // 1. ADMINS & STAFF
+    // 1. ADMINS & STAFF MEMBERS
     match /admins/{adminId} {
-      allow get, list: if isAdmin();
-      allow create, update, delete: if isSuperAdmin();
-    }
-    
-    match /staffMembers/{staffUid} {
-      allow get: if isSignedIn() && (isOwner(staffUid) || isAdmin());
+      allow get: if isValidId(adminId) && (isOwner(adminId) || isAdmin());
       allow list: if isAdmin();
-      allow create: if isSignedIn() && request.auth.uid == staffUid;
-      allow update, delete: if isAdmin();
+      allow create, update, delete: if isValidId(adminId) && isSuperAdmin();
+    }
+
+    match /staffMembers/{staffUid} {
+      allow get: if isValidId(staffUid) && (isOwner(staffUid) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(staffUid) &&
+        incoming().get('uid', staffUid) == staffUid &&
+        (isVerifiedOwner(staffUid) || isAdmin());
+      allow update, delete: if isValidId(staffUid) && isAdmin();
     }
 
     // 2. CATEGORIES
     match /categories/{categoryId} {
-      allow get: if (resource == null || existing().isActive == true || isAdmin());
-      allow list: if existing().isActive == true || isAdmin();
-      allow create, update, delete: if isAdmin();
+      allow get: if isValidId(categoryId) && (resource == null || isPublishedCatalogDoc(existing()) || isAdmin());
+      allow list: if isPublishedCatalogDoc(existing()) || isAdmin();
+      allow create, update: if isValidId(categoryId) && isAdmin();
+      allow delete: if isValidId(categoryId) && isAdmin() && existing().get('activeProductCount', 0) == 0;
     }
 
     // 3. PRODUCTS
     match /products/{productId} {
-      allow get: if (resource == null || existing().isActive == true || isAdmin());
-      allow list: if existing().isActive == true || isAdmin();
-      allow create, update, delete: if isAdmin();
+      allow get: if isValidId(productId) && (resource == null || isPublishedCatalogDoc(existing()) || isAdmin());
+      allow list: if isPublishedCatalogDoc(existing()) || isAdmin();
+      allow create, update, delete: if isValidId(productId) && isAdmin();
     }
 
-    // 4. COUPONS
+    // 4. CONFIDENTIAL INVENTORY BATCHES & IMMUTABLE STOCK MOVEMENTS
+    match /productBatches/{batchId} {
+      allow get: if isValidId(batchId) && isAdmin();
+      allow list: if isAdmin();
+      allow create, update, delete: if isValidId(batchId) && isAdmin();
+    }
+
+    match /inventoryMovements/{movementId} {
+      allow get: if isValidId(movementId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(movementId) && isAdmin();
+      allow update, delete: if false;
+    }
+
+    // 5. COUPONS & DELIVERY ZONES
     match /coupons/{couponId} {
-      allow get: if (resource == null || existing().isActive == true || isAdmin());
-      allow list: if isAdmin();
-      allow create, update, delete: if isAdmin();
+      allow get: if isValidId(couponId) && (
+        resource == null ||
+        existing().get('isActive', false) == true ||
+        existing().get('status', '') == 'active' ||
+        isAdmin()
+      );
+      allow list: if existing().get('status', '') == 'active' || existing().get('isActive', false) == true || isAdmin();
+      allow create, update, delete: if isValidId(couponId) && isAdmin();
     }
 
-    // 5. USERS & PRIVATE PROFILE
+    match /deliveryZones/{zoneId} {
+      allow get: if isValidId(zoneId) && (
+        resource == null ||
+        existing().get('status', '') == 'active' ||
+        isAdmin()
+      );
+      allow list: if existing().get('status', '') == 'active' || isAdmin();
+      allow create, update, delete: if isValidId(zoneId) && isAdmin();
+    }
+
+    // 6. CUSTOMERS & ISOLATED PII SUBCOLLECTIONS
     match /users/{userId} {
-      allow get: if isOwner(userId) || isAdmin();
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
       allow list: if isAdmin();
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId) || isAdmin();
-      allow delete: if isAdmin();
+      allow create: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow update: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow delete: if isValidId(userId) && isAdmin();
 
       match /private/{docId} {
-        allow get, update: if isOwner(userId) || isAdmin();
-        allow create: if isOwner(userId);
+        allow get, create, update: if isValidId(docId) && (isOwner(userId) || isAdmin());
+        allow delete: if isValidId(docId) && isAdmin();
+      }
+
+      match /privateProfile/{profileId} {
+        allow get, create, update: if isValidId(profileId) && (isOwner(userId) || isAdmin());
+        allow delete: if isValidId(profileId) && isAdmin();
       }
 
       match /addresses/{addressId} {
-        allow get, create, update, delete: if isOwner(userId) || isAdmin();
+        allow get, create, update, delete: if isValidId(addressId) && (isOwner(userId) || isAdmin());
+        allow list: if isOwner(userId) || isAdmin();
       }
 
       match /cart/{cartItemId} {
-        allow get, create, update, delete: if isOwner(userId);
+        allow get, create, update, delete: if isValidId(cartItemId) && isOwner(userId);
+        allow list: if isOwner(userId);
       }
     }
 
-    // 6. PRESCRIPTIONS & ORDERS
-    match /prescriptionReviews/{prescriptionId} {
-      allow get, list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
-      allow update: if isAdmin() || (isOwner(existing().userId) && incoming().status == 'pending_review');
+    // 7. PRESCRIPTIONS & ORDERS (WITH ITEMS & STATUS HISTORY)
+    match /prescriptionReviews/{reviewId} {
+      allow get: if isValidId(reviewId) && (isDocCustomerOwner(existing()) || isAdmin());
+      allow list: if isDocCustomerOwner(existing()) || isAdmin();
+      allow create: if isValidId(reviewId) && (isDocCustomerOwner(incoming()) || isAdmin());
+      allow update: if isValidId(reviewId) && (
+        isAdmin() ||
+        (isDocCustomerOwner(existing()) && incoming().get('reviewStatus', incoming().get('status', '')) == 'pending_review')
+      );
+      allow delete: if false;
     }
 
     match /orders/{orderId} {
-      allow get, list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
-      allow update: if isAdmin() || (isOwner(existing().userId) && !existing().cancellationRequested);
-      
+      allow get: if isValidId(orderId) && (isDocCustomerOwner(existing()) || isAdmin());
+      allow list: if isDocCustomerOwner(existing()) || isAdmin();
+      allow create: if isValidId(orderId) && (isDocCustomerOwner(incoming()) || isAdmin());
+      allow update: if isValidId(orderId) && (
+        isAdmin() ||
+        (isDocCustomerOwner(existing()) && !existing().get('cancellationRequested', false))
+      );
+      allow delete: if false;
+
       match /items/{itemId} {
-        allow get, list, create: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+        allow get: if isValidId(itemId) && (
+          isDocCustomerOwner(existing()) ||
+          isDocCustomerOwner(get(/databases/$(database)/documents/orders/$(orderId)).data) ||
+          isAdmin()
+        );
+        allow list: if isDocCustomerOwner(existing()) || isAdmin();
+        allow create: if isValidId(itemId) && (isDocCustomerOwner(incoming()) || isAdmin());
+        allow update, delete: if false;
+      }
+
+      match /statusHistory/{historyId} {
+        allow get: if isValidId(historyId) && (
+          isDocCustomerOwner(existing()) ||
+          isDocCustomerOwner(get(/databases/$(database)/documents/orders/$(orderId)).data) ||
+          isAdmin()
+        );
+        allow list: if isDocCustomerOwner(existing()) || isAdmin();
+        allow create: if isValidId(historyId) && (isDocCustomerOwner(incoming()) || isAdmin());
+        allow update, delete: if false;
       }
     }
 
-    // 7. NOTIFICATIONS & SUPPORT
+    // 8. NOTIFICATIONS, SUPPORT TICKETS & WEB PUSH DEVICES
     match /notifications/{notificationId} {
-      allow get, list, update: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
-      allow create: if isAdmin();
+      allow get: if isValidId(notificationId) && (isDocCustomerOwner(existing()) || isAdmin());
+      allow list: if isDocCustomerOwner(existing()) || isAdmin();
+      allow create: if isValidId(notificationId) && isAdmin();
+      allow update: if isValidId(notificationId) && (isDocCustomerOwner(existing()) || isAdmin());
+      allow delete: if isValidId(notificationId) && isAdmin();
     }
 
     match /supportTickets/{ticketId} {
-      allow get, list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
-      allow update: if isAdmin() || (isOwner(existing().userId) && existing().status != 'closed');
+      allow get: if isValidId(ticketId) && (isDocCustomerOwner(existing()) || isAdmin());
+      allow list: if isDocCustomerOwner(existing()) || isAdmin();
+      allow create: if isValidId(ticketId) && (isDocCustomerOwner(incoming()) || isAdmin());
+      allow update: if isValidId(ticketId) && (
+        isAdmin() ||
+        (isDocCustomerOwner(existing()) && existing().get('status', '') != 'closed')
+      );
+      allow delete: if false;
     }
 
-    // 8. SITE SETTINGS & AUDIT
+    match /staffPushDevices/{deviceId} {
+      allow get: if isValidId(deviceId) && isAdmin();
+      allow list: if isAdmin();
+      allow create, update, delete: if isValidId(deviceId) && isAdmin();
+    }
+
+    // 9. STOREFRONT SITE SETTINGS & IMMUTABLE AUDIT LOGS
     match /siteSettings/{settingId} {
-      allow get: if true;
-      allow update: if isAdmin();
-    }
-    
-    match /adminAuditLogs/{logId} {
-      allow get, list: if isAdmin();
-      allow create: if isAdmin();
+      allow get: if isValidId(settingId) && (
+        settingId == 'storefront_config' ||
+        resource == null ||
+        existing().get('storeId', '') == 'finesteride-recur-bd' ||
+        existing().get('isPublic', true) == true ||
+        isAdmin()
+      );
+      allow list: if existing().get('storeId', '') == 'finesteride-recur-bd' || isAdmin();
+      allow create, update: if isValidId(settingId) && isAdmin();
+      allow delete: if false;
     }
 
-    // 9. TEST CONNECTION
+    match /adminAuditLogs/{logId} {
+      allow get: if isValidId(logId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(logId) && isAdmin();
+      allow update, delete: if false;
+    }
+
+    // 10. SDK CONNECTIVITY PROBE
     match /test/connection {
-      allow read: if true;
+      allow get: if true;
     }
   }
 }

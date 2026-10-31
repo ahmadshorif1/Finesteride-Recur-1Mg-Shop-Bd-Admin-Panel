@@ -80,7 +80,7 @@ export function InventoryView() {
         </div>
 
         {permissions?.canManageInventory && (
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 no-print">
             <button
               type="button"
               disabled={products.length === 0}
@@ -100,14 +100,14 @@ export function InventoryView() {
       </div>
 
       {errorMsg && (
-        <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-4 text-sm text-[#991B1B] flex items-start gap-2.5">
+        <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-4 text-sm text-[#991B1B] flex items-start gap-2.5 no-print">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <span>{errorMsg}</span>
         </div>
       )}
 
       {/* Segmented View Tabs */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4 no-print">
         <div className="flex items-center gap-1 p-1 bg-[#EEF4F0] rounded-lg">
           <button
             type="button"
@@ -194,7 +194,7 @@ export function InventoryView() {
                     <th className="py-3 px-4 text-right">Remaining / Recv</th>
                     <th className="py-3 px-4">Expiry Date</th>
                     <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-6 text-right">Safety Action</th>
+                    <th className="py-3 px-6 text-right print-hide-col">Safety Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#EEF2F6] text-sm">
@@ -244,7 +244,7 @@ export function InventoryView() {
                         <td className="py-3 px-4 text-xs capitalize text-[#64748B]">
                           {b.status.replace(/_/g, ' ')}
                         </td>
-                        <td className="py-3 px-6 text-right">
+                        <td className="py-3 px-6 text-right print-hide-col">
                           {permissions?.canManageInventory &&
                             b.status !== 'expired_quarantined' &&
                             b.quantityRemaining > 0 && (
@@ -306,7 +306,7 @@ export function InventoryView() {
                         setAdjustReason('Replenishing low stock alert');
                         setAdjustModalProduct(p);
                       }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#0D7E74] border border-[#0D7E74] rounded-lg hover:bg-[#F2F8F4] whitespace-nowrap shrink-0"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#0D7E74] border border-[#0D7E74] rounded-lg hover:bg-[#F2F8F4] whitespace-nowrap shrink-0 no-print"
                     >
                       <ArrowDownUp className="w-3.5 h-3.5" />
                       Adjust Stock
@@ -380,7 +380,7 @@ export function InventoryView() {
 
       {/* Receive Incoming Batch Modal */}
       {batchModalOpen && actor && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 no-print">
           <div className="bg-white border border-[#E6ECEF] rounded-xl max-w-xl w-full p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-[#EEF2F6] pb-3">
               <div>
@@ -553,7 +553,7 @@ export function InventoryView() {
 
       {/* Manual Atomic Stock Adjustment Modal */}
       {adjustModalProduct && actor && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 no-print">
           <div className="bg-white border border-[#E6ECEF] rounded-xl max-w-md w-full p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-[#EEF2F6] pb-3">
               <h3 className="text-base font-bold text-[#0F172A]">

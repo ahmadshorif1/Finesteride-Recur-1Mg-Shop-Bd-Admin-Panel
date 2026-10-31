@@ -256,7 +256,7 @@ export function ReportsQaView() {
           </p>
         </div>
 
-        <div className="inline-flex bg-white border border-[#E6ECEF] rounded-lg p-1 self-start">
+        <div className="inline-flex bg-white border border-[#E6ECEF] rounded-lg p-1 self-start no-print">
           <button
             type="button"
             onClick={() => setTab('reports')}
@@ -297,14 +297,14 @@ export function ReportsQaView() {
       </div>
 
       {errorMsg && (
-        <div className="bg-white border border-[#FCA5A5] rounded-xl p-4 flex items-start gap-3">
+        <div className="bg-white border border-[#FCA5A5] rounded-xl p-4 flex items-start gap-3 no-print">
           <AlertCircle className="w-5 h-5 text-[#DC2626] shrink-0 mt-0.5" />
           <p className="text-sm text-[#991B1B]">{errorMsg}</p>
         </div>
       )}
 
       {successMsg && (
-        <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 flex items-center justify-between gap-3">
+        <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 flex items-center justify-between gap-3 no-print">
           <div className="flex items-center gap-2.5 text-sm text-[#15803D]">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{successMsg}</span>
@@ -322,7 +322,7 @@ export function ReportsQaView() {
       {tab === 'reports' && (
         <div className="space-y-6">
           {/* Controls Strip */}
-          <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 no-print">
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-xs font-semibold text-[#0F172A]">Report Window:</span>
               {[
@@ -391,7 +391,7 @@ export function ReportsQaView() {
           </div>
 
           {/* Exportable Report Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 no-print">
             <div className="bg-white border border-[#E6ECEF] rounded-xl p-5 flex items-start justify-between gap-4">
               <div className="space-y-1">
                 <h2 className="text-sm font-semibold text-[#0F172A]">

@@ -658,7 +658,7 @@ export function PaymentsDeliveryView() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 no-print">
           <div className="inline-flex bg-white border border-[#E6ECEF] rounded-lg p-1">
             <button
               type="button"
@@ -728,14 +728,14 @@ export function PaymentsDeliveryView() {
       </div>
 
       {errorMsg && (
-        <div className="bg-white border border-[#FCA5A5] rounded-xl p-4 flex items-start gap-3">
+        <div className="bg-white border border-[#FCA5A5] rounded-xl p-4 flex items-start gap-3 no-print">
           <AlertCircle className="w-5 h-5 text-[#DC2626] shrink-0 mt-0.5" />
           <p className="text-sm text-[#991B1B]">{errorMsg}</p>
         </div>
       )}
 
       {successMsg && (
-        <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 flex items-center justify-between gap-3">
+        <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 flex items-center justify-between gap-3 no-print">
           <div className="flex items-center gap-2.5 text-sm text-[#15803D]">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{successMsg}</span>
@@ -1253,7 +1253,7 @@ export function PaymentsDeliveryView() {
       {/* TAB 2: LIVE PAYMENT VERIFICATION, COD COLLECTION & REFUND QUEUE */}
       {activeTab === 'verification' && (
         <div className="space-y-4">
-          <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="bg-white border border-[#E6ECEF] rounded-xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 no-print">
             <div className="relative">
               <Search className="w-4 h-4 text-[#64748B] absolute left-3 top-2.5" />
               <input
@@ -1323,7 +1323,7 @@ export function PaymentsDeliveryView() {
                       <th className="py-3 px-4">Submitted / Verified Reference</th>
                       <th className="py-3 px-4 text-right">Amount</th>
                       <th className="py-3 px-4">Payment Status</th>
-                      <th className="py-3 px-6 text-right">Settlement Action</th>
+                      <th className="py-3 px-6 text-right print-hide-col">Settlement Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#EEF2F6] text-sm">
@@ -1382,7 +1382,7 @@ export function PaymentsDeliveryView() {
                             {ord.paymentStatus.replace(/_/g, ' ')}
                           </span>
                         </td>
-                        <td className="py-3.5 px-6 text-right">
+                        <td className="py-3.5 px-6 text-right print-hide-col">
                           {permissions?.canVerifyPayments &&
                           ord.orderStatus !== 'refunded' &&
                           !(ord.orderStatus === 'cancelled' && ord.paymentStatus !== 'refund_pending') ? (
@@ -1479,7 +1479,7 @@ export function PaymentsDeliveryView() {
                     <th className="py-3 px-4 text-right">Delivery Fee</th>
                     <th className="py-3 px-4 text-right">Free Above</th>
                     <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-6 text-right">Actions</th>
+                    <th className="py-3 px-6 text-right print-hide-col">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#EEF2F6] text-sm">
@@ -1542,7 +1542,7 @@ export function PaymentsDeliveryView() {
                             </span>
                           )}
                         </td>
-                        <td className="py-4 px-6 text-right">
+                        <td className="py-4 px-6 text-right print-hide-col">
                           {permissions?.canManageDelivery ? (
                             <div className="inline-flex items-center justify-end gap-1.5">
                               <button
