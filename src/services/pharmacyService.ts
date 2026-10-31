@@ -204,6 +204,22 @@ export async function ensureStaffProfileInFirestore(actor: ActorContext): Promis
         updatedAt: serverTimestamp(),
       });
     }
+    if (actor.role === 'super_admin' || actor.role === 'store_admin') {
+      try {
+        const adminRef = doc(db, 'admins', actor.uid);
+        const adminSnap = await getDoc(adminRef);
+        if (!adminSnap.exists()) {
+          await setDoc(adminRef, {
+            uid: actor.uid,
+            email: sanitizeText((actor.email || '').toLowerCase(), 160) || 'admin@pharmacy.local',
+            role: 'admin',
+            createdAt: serverTimestamp(),
+          });
+        }
+      } catch {
+        // Non-blocking Customer Panel /admins mirror
+      }
+    }
     persistedStaffUids.add(actor.uid);
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
@@ -281,6 +297,16 @@ export async function bootstrapSuperAdminProfile(params: {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+    try {
+      await setDoc(doc(db, 'admins', params.uid), {
+        uid: params.uid,
+        email: sanitizeText(params.email.toLowerCase(), 160),
+        role: 'admin',
+        createdAt: serverTimestamp(),
+      });
+    } catch {
+      // Non-blocking Customer Panel /admins mirror
+    }
     persistedStaffUids.add(params.uid);
 
     await recordAdminAudit(
@@ -502,6 +528,8 @@ export const VERIFIED_PHARMA_BRANDS: string[] = [
 function buildCategoryCompatibilityFields(params: {
   cleanName: string;
   cleanNameBn: string;
+  cleanIconName?: string;
+  cleanImageUrl?: string;
   displayOrder: number;
   publicationStatus: 'published' | 'hidden';
   activeProductCount: number;
@@ -509,13 +537,21 @@ function buildCategoryCompatibilityFields(params: {
   const isPublished = params.publicationStatus === 'published';
   const safeOrder = Math.max(0, Math.min(10000, Number(params.displayOrder) || 0));
   const safeCount = Math.max(0, Number(params.activeProductCount) || 0);
+  const safeIcon = sanitizeText(params.cleanIconName || 'Pill', 40);
+  const safeImg = sanitizeSafeUrl(params.cleanImageUrl || '', 500);
   return {
+    nameEn: params.cleanName,
+    iconKey: safeIcon,
+    icon: safeIcon,
+    image: safeImg,
     isActive: isPublished,
+    active: isPublished,
     status: isPublished ? 'active' : 'inactive',
     published: isPublished,
+    featured: isPublished,
     visibility: isPublished ? 'public' : 'hidden',
     title: params.cleanName,
-    titleBn: params.cleanNameBn,
+    titleBn: params.cleanNameBn || params.cleanName,
     order: safeOrder,
     sortOrder: safeOrder,
     productCount: safeCount,
@@ -529,6 +565,8 @@ function buildProductCompatibilityFields(params: {
   cleanCategoryNameBn: string;
   cleanImages: string[];
   cleanUnitSize: string;
+  cleanUsage?: string;
+  cleanStorage?: string;
   sellingPrice: number;
   previousPrice: number;
   stockQuantity: number;
@@ -545,20 +583,30 @@ function buildProductCompatibilityFields(params: {
   const isPublished = params.publicationStatus === 'published';
   const inStock = params.stockQuantity > 0 && params.availabilityStatus !== 'expired_restricted';
   const requiresRx = params.prescriptionType !== 'otc';
+  const safeUsage = sanitizeText(params.cleanUsage || '', 1000);
+  const safeStorage = sanitizeText(params.cleanStorage || '', 500);
 
   return {
     brand: params.cleanManufacturer,
     company: params.cleanManufacturer,
     category: params.cleanCategoryName,
     categorySlug: params.cleanCategorySlug,
-    categoryNameBn: params.cleanCategoryNameBn,
+    categoryNameBn: params.cleanCategoryNameBn || params.cleanCategoryName,
+    categoryNameEn: params.cleanCategoryName,
     image: primaryImage,
     imageUrl: primaryImage,
     thumbnail: primaryImage,
+    galleryUrls: params.cleanImages,
     packSize: params.cleanUnitSize,
+    usageInfo: safeUsage,
+    usageSummary: safeUsage,
+    storageInfo: safeStorage,
     price: safeSelling,
+    unitPrice: safeSelling,
+    offerPrice: safeSelling,
     mrp,
     regularPrice: mrp,
+    compareAtPrice: mrp,
     originalPrice: safePrev,
     discountPrice: safeSelling,
     discountPercent,
@@ -566,9 +614,12 @@ function buildProductCompatibilityFields(params: {
     inStock,
     requiresPrescription: requiresRx,
     prescriptionRequired: requiresRx,
+    isRx: requiresRx,
     isActive: isPublished,
+    active: isPublished,
     status: isPublished ? 'active' : params.publicationStatus,
     published: isPublished,
+    isPublished,
     visibility: isPublished ? 'public' : 'hidden',
   };
 }
@@ -603,6 +654,8 @@ export async function saveCategory(
   const compatFields = buildCategoryCompatibilityFields({
     cleanName,
     cleanNameBn,
+    cleanIconName: input.iconName || 'Pill',
+    cleanImageUrl: input.imageUrl,
     displayOrder: safeOrder,
     publicationStatus: input.publicationStatus,
     activeProductCount: safeCount,
@@ -963,6 +1016,8 @@ export async function saveProduct(
         cleanCategoryNameBn: cleanCatNameBn,
         cleanImages,
         cleanUnitSize,
+        cleanUsage: input.usageInstructions,
+        cleanStorage: input.storageInstructions,
         sellingPrice: safeSellingPrice,
         previousPrice: safePreviousPrice,
         stockQuantity: safeStock,
@@ -1507,40 +1562,76 @@ export async function quarantineBatchStock(actor: ActorContext, batchRecord: Pro
 // ---------------------------------------------------------------------------
 // 5. ORDERS, SUBCOLLECTIONS, PRESCRIPTIONS & PAYMENTS
 // ---------------------------------------------------------------------------
+export function toCustomerPanelOrderStatus(status: OrderStatus): string {
+  switch (status) {
+    case 'pending':
+      return 'Pending';
+    case 'awaiting_review':
+      return 'Awaiting Review';
+    case 'confirmed':
+      return 'Confirmed';
+    case 'processing':
+      return 'Processing';
+    case 'ready_for_dispatch':
+      return 'Ready for Dispatch';
+    case 'shipped':
+      return 'Shipped';
+    case 'delivered':
+      return 'Delivered';
+    case 'cancelled':
+      return 'Cancelled';
+    case 'refund_pending':
+      return 'Refund Pending';
+    case 'refunded':
+      return 'Refunded';
+    default:
+      return 'Pending';
+  }
+}
+
 export async function fetchOrderDetails(orderId: string): Promise<{
   items: OrderItem[];
   history: OrderStatusHistory[];
 }> {
   const itemsPath = `orders/${orderId}/items`;
   const historyPath = `orders/${orderId}/statusHistory`;
-  const currentUser = auth.currentUser;
-  const isBootstrapped = isBootstrappedSuperAdminEmail(currentUser?.email);
   try {
-    const itemsQ =
-      isBootstrapped || !currentUser
-        ? query(collection(db, 'orders', orderId, 'items'), where('storeId', '==', SHARED_STORE_ID))
-        : query(
-            collection(db, 'orders', orderId, 'items'),
-            where('storeId', '==', SHARED_STORE_ID),
-            where('authorizedStaffUids', 'array-contains', currentUser.uid)
-          );
-    const histQ =
-      isBootstrapped || !currentUser
-        ? query(
-            collection(db, 'orders', orderId, 'statusHistory'),
-            where('storeId', '==', SHARED_STORE_ID),
-            orderBy('createdAt', 'desc')
-          )
-        : query(
-            collection(db, 'orders', orderId, 'statusHistory'),
-            where('storeId', '==', SHARED_STORE_ID),
-            where('authorizedStaffUids', 'array-contains', currentUser.uid),
-            orderBy('createdAt', 'desc')
-          );
+    const itemsQ = collection(db, 'orders', orderId, 'items');
+    const histQ = query(collection(db, 'orders', orderId, 'statusHistory'), orderBy('createdAt', 'desc'));
 
-    const [itemsSnap, histSnap] = await Promise.all([getDocs(itemsQ), getDocs(histQ)]);
-    const items = itemsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<OrderItem, 'id'>) }));
+    const [itemsSnap, histSnap] = await Promise.all([
+      getDocs(itemsQ),
+      getDocs(histQ).catch(() => getDocs(collection(db, 'orders', orderId, 'statusHistory'))),
+    ]);
+
+    const items: OrderItem[] = itemsSnap.docs.map((d) => {
+      const raw = d.data() as Record<string, unknown>;
+      const qty = Math.max(1, Number(raw.quantity ?? 1) || 1);
+      const unitPriceBdt = Number(raw.unitPriceBdt ?? raw.unitPrice ?? 0) || 0;
+      const lineTotalBdt = Number(raw.lineTotalBdt ?? raw.lineTotal ?? unitPriceBdt * qty) || 0;
+      return {
+        id: d.id,
+        orderId: String(raw.orderId || orderId),
+        productId: String(raw.productId || d.id),
+        productName: String(raw.productName || 'Medicine Item'),
+        genericName: String(raw.genericName || ''),
+        manufacturer: String(raw.manufacturer || raw.brand || ''),
+        unitSize: String(raw.unitSize || raw.packSize || ''),
+        sku: String(raw.sku || ''),
+        batchNumber: String(raw.batchNumber || 'FIFO-ALLOCATED'),
+        unitPriceBdt,
+        quantity: qty,
+        lineTotalBdt,
+        prescriptionRequired: Boolean(raw.prescriptionRequired ?? raw.requiresPrescription ?? false),
+        customerId: String(raw.customerId || raw.userId || ''),
+        storeId: String(raw.storeId || SHARED_STORE_ID),
+        authorizedStaffUids: Array.isArray(raw.authorizedStaffUids) ? (raw.authorizedStaffUids as string[]) : [],
+        createdAt: (raw.createdAt as OrderItem['createdAt']) || null,
+      };
+    });
+
     const history = histSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<OrderStatusHistory, 'id'>) }));
+    history.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     return { items, history };
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, `${itemsPath} | ${historyPath}`);
@@ -1613,9 +1704,16 @@ export async function transitionOrderStatus(
     // Load order items if cancelling so reserved stock is atomically restocked
     let itemsToRestock: OrderItem[] = [];
     if (input.nextStatus === 'cancelled' && order.orderStatus !== 'cancelled') {
-      const itemsQ = query(collection(db, 'orders', order.id, 'items'), where('storeId', '==', SHARED_STORE_ID));
-      const snap = await getDocs(itemsQ);
-      itemsToRestock = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<OrderItem, 'id'>) }));
+      const snap = await getDocs(collection(db, 'orders', order.id, 'items'));
+      itemsToRestock = snap.docs.map((d) => {
+        const raw = d.data() as Record<string, unknown>;
+        return {
+          id: d.id,
+          ...(raw as Omit<OrderItem, 'id'>),
+          productId: String(raw.productId || d.id),
+          quantity: Math.max(1, Number(raw.quantity ?? 1) || 1),
+        };
+      });
     }
 
     await runTransaction(db, async (tx) => {
@@ -1639,8 +1737,10 @@ export async function transitionOrderStatus(
 
       tx.update(orderRef, {
         orderStatus: input.nextStatus,
+        status: toCustomerPanelOrderStatus(input.nextStatus),
         paymentStatus: nextPaymentStatus,
         transactionReference: order.transactionReference,
+        paymentSenderRef: order.transactionReference,
         paymentVerifiedAt: order.paymentVerifiedAt,
         prescriptionReviewId: order.prescriptionReviewId,
         prescriptionReviewStatus: order.prescriptionReviewStatus,
@@ -1667,6 +1767,7 @@ export async function transitionOrderStatus(
         changedByName: sanitizeText(actor.displayName, 120),
         changedByRole: actor.role,
         customerId: order.customerId,
+        userId: order.customerId,
         storeId: SHARED_STORE_ID,
         authorizedStaffUids: staffUids,
         createdAt: serverTimestamp(),
@@ -1677,16 +1778,18 @@ export async function transitionOrderStatus(
         const prodSnap = prodSnapshots[idx];
         if (!prodSnap || !prodSnap.exists()) return;
         const pData = prodSnap.data() as Omit<Product, 'id'>;
-        const prevStock = pData.stockQuantity || 0;
+        const prevStock = Number(pData.stockQuantity ?? pData.stock ?? 0) || 0;
         const newStock = prevStock + item.quantity;
         const availabilityStatus = computeProductAvailability(
           newStock,
-          pData.lowStockThreshold,
-          pData.nearestExpiryDate
+          pData.lowStockThreshold ?? 10,
+          pData.nearestExpiryDate || ''
         );
 
         tx.update(doc(db, 'products', item.productId), {
           stockQuantity: newStock,
+          stock: newStock,
+          inStock: newStock > 0 && availabilityStatus !== 'expired_restricted',
           availabilityStatus,
           updatedAt: serverTimestamp(),
         });
@@ -1861,8 +1964,10 @@ export async function recordPaymentDecision(
     const batch = writeBatch(db);
     batch.update(doc(db, 'orders', order.id), {
       orderStatus: nextOrderStatus,
+      status: toCustomerPanelOrderStatus(nextOrderStatus),
       paymentStatus: resolved.paymentStatus,
       transactionReference: sanitizeText(resolved.normalizedReference, 100),
+      paymentSenderRef: sanitizeText(resolved.normalizedReference, 100),
       paymentVerifiedAt: sanitizeText(resolved.paymentVerifiedAt, 40),
       prescriptionReviewId: order.prescriptionReviewId,
       prescriptionReviewStatus: order.prescriptionReviewStatus,
@@ -1883,6 +1988,7 @@ export async function recordPaymentDecision(
       changedByName: sanitizeText(actor.displayName, 120),
       changedByRole: actor.role,
       customerId: order.customerId,
+      userId: order.customerId,
       storeId: SHARED_STORE_ID,
       authorizedStaffUids: staffUids,
       createdAt: serverTimestamp(),
@@ -1943,15 +2049,19 @@ export async function reviewPrescriptionSubmission(
   const reviewedAtIso = new Date().toISOString();
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = `prescriptionReviews/${review.id}`;
+  const customerPanelRxStatus =
+    decision.reviewStatus === 'more_info_requested' ? 'needs_info' : decision.reviewStatus;
 
   try {
     const batch = writeBatch(db);
     batch.update(doc(db, 'prescriptionReviews', review.id), {
       reviewStatus: decision.reviewStatus,
+      status: customerPanelRxStatus,
       reviewerUid: actor.uid,
       reviewerName: sanitizeText(actor.displayName, 120),
       reviewerLicense: cleanLicense,
       reviewNotes: sanitizeText(decision.reviewNotes, 600),
+      pharmacistNotes: sanitizeText(decision.reviewNotes, 600),
       reviewedAt: reviewedAtIso,
       authorizedStaffUids: staffUids,
       updatedAt: serverTimestamp(),
@@ -1965,6 +2075,7 @@ export async function reviewPrescriptionSubmission(
 
       batch.update(doc(db, 'orders', linkedOrder.id), {
         orderStatus: nextOrderStatus,
+        status: toCustomerPanelOrderStatus(nextOrderStatus),
         paymentStatus: linkedOrder.paymentStatus,
         transactionReference: linkedOrder.transactionReference,
         paymentVerifiedAt: linkedOrder.paymentVerifiedAt,
@@ -1990,6 +2101,7 @@ export async function reviewPrescriptionSubmission(
         changedByName: sanitizeText(actor.displayName, 120),
         changedByRole: actor.role,
         customerId: linkedOrder.customerId,
+        userId: linkedOrder.customerId,
         storeId: SHARED_STORE_ID,
         authorizedStaffUids: staffUids,
         createdAt: serverTimestamp(),
@@ -2003,7 +2115,7 @@ export async function reviewPrescriptionSubmission(
       'prescriptions',
       `PRESCRIPTION_${decision.reviewStatus.toUpperCase()}`,
       review.id,
-      review.orderNumber,
+      review.orderNumber || review.id,
       `Prescription ${decision.reviewStatus} by ${actor.displayName} (License: ${cleanLicense}).`
     );
   } catch (error) {
@@ -2018,8 +2130,27 @@ export async function fetchCustomerPrivatePii(customerId: string): Promise<UserP
   const path = `users/${customerId}/privateProfile/pii`;
   try {
     const snap = await getDoc(doc(db, 'users', customerId, 'privateProfile', 'pii'));
-    if (!snap.exists()) return null;
-    return snap.data() as UserPrivateProfile;
+    if (snap.exists()) {
+      return snap.data() as UserPrivateProfile;
+    }
+    const customerPanelPiiSnap = await getDoc(doc(db, 'users', customerId, 'private', 'profile'));
+    if (customerPanelPiiSnap.exists()) {
+      const raw = customerPanelPiiSnap.data() as Record<string, unknown>;
+      return {
+        uid: String(raw.uid || customerId),
+        email: String(raw.email || ''),
+        phone: String(raw.phone || ''),
+        deliveryAddress: String(raw.deliveryAddress || ''),
+        city: String(raw.city || ''),
+        deliveryZone: String(raw.defaultZone || raw.deliveryZone || ''),
+        deletionReason: '',
+        storeId: SHARED_STORE_ID,
+        authorizedStaffUids: [],
+        createdAt: (raw.createdAt as UserPrivateProfile['createdAt']) || null,
+        updatedAt: (raw.updatedAt as UserPrivateProfile['updatedAt']) || null,
+      };
+    }
+    return null;
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, path);
   }
@@ -2069,11 +2200,13 @@ export async function updateSupportTicketStatus(
   await ensureStaffProfileInFirestore(actor);
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = `supportTickets/${ticket.id}`;
+  const cleanReply = sanitizeText(updates.staffResolutionNote, 1500);
   try {
     await updateDoc(doc(db, 'supportTickets', ticket.id), {
       priority: updates.priority,
       status: updates.status,
-      staffResolutionNote: sanitizeText(updates.staffResolutionNote, 1500),
+      staffResolutionNote: cleanReply,
+      adminReply: cleanReply,
       assignedToUid: actor.uid,
       authorizedStaffUids: staffUids,
       updatedAt: serverTimestamp(),
@@ -2102,9 +2235,12 @@ export async function saveCouponRecord(
   await ensureStaffProfileInFirestore(actor);
   const isEdit = Boolean(input.id);
   const cleanCode = sanitizeText(input.code.toUpperCase(), 32).replace(/[^A-Z0-9_-]/g, '');
-  const couponId = input.id || `cpn_${cleanCode.toLowerCase()}`;
+  const couponId = input.id || cleanCode;
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = `coupons/${couponId}`;
+  const safeMinOrder = Math.max(0, Number(input.minOrderAmountBdt) || 0);
+  const safeMaxDiscount = Math.max(0, Number(input.maxDiscountBdt) || 0);
+  const isCouponActive = input.status === 'active';
 
   try {
     if (!isEdit) {
@@ -2113,14 +2249,17 @@ export async function saveCouponRecord(
         description: sanitizeText(input.description, 240),
         discountType: input.discountType,
         discountValue: Math.max(1, Number(input.discountValue) || 1),
-        minOrderAmountBdt: Math.max(0, Number(input.minOrderAmountBdt) || 0),
-        maxDiscountBdt: Math.max(0, Number(input.maxDiscountBdt) || 0),
+        minOrderAmountBdt: safeMinOrder,
+        minOrderAmount: safeMinOrder,
+        maxDiscountBdt: safeMaxDiscount,
+        maxDiscountAmount: safeMaxDiscount,
         startDate: sanitizeText(input.startDate, 32),
         endDate: sanitizeText(input.endDate, 32),
         usageLimit: Math.max(1, Number(input.usageLimit) || 100),
         usedCount: 0,
         applicableCategory: sanitizeText(input.applicableCategory || 'all', 100),
         status: input.status,
+        isActive: isCouponActive,
         storeId: SHARED_STORE_ID,
         authorizedStaffUids: staffUids,
         createdAt: serverTimestamp(),
@@ -2131,14 +2270,17 @@ export async function saveCouponRecord(
         description: sanitizeText(input.description, 240),
         discountType: input.discountType,
         discountValue: Math.max(1, Number(input.discountValue) || 1),
-        minOrderAmountBdt: Math.max(0, Number(input.minOrderAmountBdt) || 0),
-        maxDiscountBdt: Math.max(0, Number(input.maxDiscountBdt) || 0),
+        minOrderAmountBdt: safeMinOrder,
+        minOrderAmount: safeMinOrder,
+        maxDiscountBdt: safeMaxDiscount,
+        maxDiscountAmount: safeMaxDiscount,
         startDate: sanitizeText(input.startDate, 32),
         endDate: sanitizeText(input.endDate, 32),
         usageLimit: Math.max(1, Number(input.usageLimit) || 100),
         usedCount: Math.max(0, Number(input.usedCount) || 0),
         applicableCategory: sanitizeText(input.applicableCategory || 'all', 100),
         status: input.status,
+        isActive: isCouponActive,
         authorizedStaffUids: staffUids,
         updatedAt: serverTimestamp(),
       });
@@ -2523,17 +2665,34 @@ export async function saveSiteSettingsConfig(
   await ensureStaffProfileInFirestore(actor);
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = 'siteSettings/storefront_config';
+  const cleanSiteName = sanitizeText(input.siteName, 120);
+  const cleanHeroSubtitle = sanitizeText(input.heroSubtitle, 400);
+  const cleanHeroBanner = sanitizeSafeUrl(input.heroBannerUrl, 500);
+  const cleanPromoBanner = sanitizeText(input.promoBannerText, 240);
+  const cleanDeliveryPolicy = sanitizeText(input.deliveryInfoPolicy, 1500);
+  const cleanPaymentPolicy = sanitizeText(input.paymentInfoPolicy, 1500);
+  const cleanTerms = sanitizeText(input.termsAndConditions, 3000);
+  const cleanPrivacy = sanitizeText(input.privacyPolicy, 3000);
+  const cleanReturn = sanitizeText(input.returnRefundPolicy, 2500);
+  const enabledMethods = (input.enabledPaymentMethods || []).map((s) => sanitizeText(s, 32)).filter(Boolean).slice(0, 5);
+
   const payload = {
-    siteName: sanitizeText(input.siteName, 120),
+    isPublic: true,
+    siteName: cleanSiteName,
+    brandName: cleanSiteName,
+    storeName: cleanSiteName,
     tagline: sanitizeText(input.tagline, 160),
     taglineBn: sanitizeText(input.taglineBn, 160),
     logoUrl: sanitizeSafeUrl(input.logoUrl, 500),
     faviconUrl: sanitizeSafeUrl(input.faviconUrl, 500),
     heroTitle: sanitizeText(input.heroTitle, 160),
-    heroSubtitle: sanitizeText(input.heroSubtitle, 400),
-    heroBannerUrl: sanitizeSafeUrl(input.heroBannerUrl, 500),
+    heroSubtitle: cleanHeroSubtitle,
+    heroDescription: cleanHeroSubtitle,
+    heroBannerUrl: cleanHeroBanner,
+    heroImageUrl: cleanHeroBanner,
     heroCtaText: sanitizeText(input.heroCtaText, 60),
-    promoBannerText: sanitizeText(input.promoBannerText, 240),
+    promoBannerText: cleanPromoBanner,
+    topBarDeliveryText: cleanPromoBanner,
     featuredCategorySlugs: (input.featuredCategorySlugs || []).map((s) => sanitizeText(s, 100)).filter(Boolean).slice(0, 8),
     homepageSectionOrder: (input.homepageSectionOrder || []).map((s) => sanitizeText(s, 60)).filter(Boolean).slice(0, 8),
     navigationLinks: (input.navigationLinks || []).map((s) => sanitizeText(s, 160)).filter(Boolean).slice(0, 8),
@@ -2541,13 +2700,22 @@ export async function saveSiteSettingsConfig(
     supportEmail: sanitizeText(input.supportEmail, 254),
     supportHours: sanitizeText(input.supportHours, 80),
     pharmacyLicenseNo: sanitizeText(input.pharmacyLicenseNo, 80),
-    deliveryInfoPolicy: sanitizeText(input.deliveryInfoPolicy, 1500),
-    paymentInfoPolicy: sanitizeText(input.paymentInfoPolicy, 1500),
-    enabledPaymentMethods: (input.enabledPaymentMethods || []).map((s) => sanitizeText(s, 32)).filter(Boolean).slice(0, 5),
+    deliveryInfoPolicy: cleanDeliveryPolicy,
+    deliveryPolicy: cleanDeliveryPolicy,
+    paymentInfoPolicy: cleanPaymentPolicy,
+    enabledPaymentMethods: enabledMethods,
+    codEnabled: enabledMethods.includes('cod'),
+    bkashEnabled: enabledMethods.includes('bkash'),
+    bkashInstructions: cleanPaymentPolicy.slice(0, 1000),
+    nagadEnabled: enabledMethods.includes('nagad'),
+    nagadInstructions: cleanPaymentPolicy.slice(0, 1000),
     faqContent: sanitizeText(input.faqContent, 2500),
-    termsAndConditions: sanitizeText(input.termsAndConditions, 3000),
-    privacyPolicy: sanitizeText(input.privacyPolicy, 3000),
-    returnRefundPolicy: sanitizeText(input.returnRefundPolicy, 2500),
+    aboutContent: sanitizeText(input.faqContent, 2500),
+    termsAndConditions: cleanTerms,
+    termsConditions: cleanTerms,
+    privacyPolicy: cleanPrivacy,
+    returnRefundPolicy: cleanReturn,
+    returnPolicy: cleanReturn,
     authorizedStaffUids: staffUids,
     updatedByUid: actor.uid,
     updatedAt: serverTimestamp(),
@@ -2562,6 +2730,19 @@ export async function saveSiteSettingsConfig(
       });
     } else {
       await updateDoc(doc(db, 'siteSettings', 'storefront_config'), payload);
+    }
+
+    try {
+      await setDoc(
+        doc(db, 'siteSettings', 'general'),
+        {
+          ...payload,
+          storeId: SHARED_STORE_ID,
+        },
+        { merge: true }
+      );
+    } catch {
+      // Non-blocking Customer Panel siteSettings/general mirror
     }
 
     await recordAdminAudit(
@@ -2947,6 +3128,8 @@ export async function syncCatalogToCustomerPanel(
       cleanCategoryNameBn: cleanCatNameBn,
       cleanImages,
       cleanUnitSize,
+      cleanUsage: prod.usageInstructions || '',
+      cleanStorage: prod.storageInstructions || '',
       sellingPrice: safeSelling,
       previousPrice: safePrev,
       stockQuantity: safeStock,
@@ -3008,6 +3191,8 @@ export async function syncCatalogToCustomerPanel(
     const compat = buildCategoryCompatibilityFields({
       cleanName,
       cleanNameBn,
+      cleanIconName: cat.iconName || 'Pill',
+      cleanImageUrl: cat.imageUrl || '',
       displayOrder: safeOrder,
       publicationStatus: nextPub,
       activeProductCount: actualCount,

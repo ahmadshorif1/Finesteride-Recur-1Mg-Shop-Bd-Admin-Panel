@@ -122,7 +122,32 @@ export function StoreDataProvider({ children }: { children: React.ReactNode }) {
       onSnapshot(
         buildStaffQuery('categories'),
         (snap) => {
-          const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Category, 'id'>) }));
+          const list = snap.docs.map((d) => {
+            const raw = d.data() as Record<string, unknown>;
+            const name = String(raw.name || raw.nameEn || raw.title || 'Category');
+            const nameBn = String(raw.nameBn || raw.titleBn || '');
+            const displayOrder = Number(raw.displayOrder ?? raw.sortOrder ?? raw.order ?? 0) || 0;
+            const publicationStatus: Category['publicationStatus'] =
+              (raw.publicationStatus as Category['publicationStatus']) ||
+              (raw.isActive === false || raw.active === false || raw.status === 'inactive'
+                ? 'hidden'
+                : 'published');
+            const activeProductCount = Number(raw.activeProductCount ?? raw.productCount ?? 0) || 0;
+            return {
+              id: d.id,
+              ...(raw as Omit<Category, 'id'>),
+              name,
+              nameBn,
+              slug: String(raw.slug || d.id),
+              description: String(raw.description || ''),
+              iconName: String(raw.iconName || raw.iconKey || raw.icon || 'Pill'),
+              imageUrl: String(raw.imageUrl || raw.image || ''),
+              parentCategoryId: String(raw.parentCategoryId || ''),
+              displayOrder,
+              publicationStatus,
+              activeProductCount,
+            };
+          });
           list.sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
           setCategories(list);
           markReady();
@@ -136,12 +161,16 @@ export function StoreDataProvider({ children }: { children: React.ReactNode }) {
         buildStaffQuery('products'),
         (snap) => {
           const list = snap.docs.map((d) => {
-            const raw = d.data() as Omit<Product, 'id'>;
-            const sellingPrice = Number(raw.sellingPrice ?? raw.price ?? 0) || 0;
-            const previousPrice = Number(raw.previousPrice ?? raw.originalPrice ?? 0) || 0;
+            const raw = d.data() as Omit<Product, 'id'> & Record<string, unknown>;
+            const sellingPrice =
+              Number(raw.sellingPrice ?? raw.offerPrice ?? raw.discountPrice ?? raw.price ?? 0) || 0;
+            const previousPrice =
+              Number(raw.previousPrice ?? raw.regularPrice ?? raw.mrp ?? raw.originalPrice ?? 0) || 0;
             const stockQuantity = Number(raw.stockQuantity ?? raw.stock ?? 0) || 0;
             const images = Array.isArray(raw.images)
               ? raw.images
+              : Array.isArray(raw.galleryUrls)
+              ? (raw.galleryUrls as string[])
               : raw.imageUrl
               ? [raw.imageUrl]
               : raw.image
@@ -151,12 +180,14 @@ export function StoreDataProvider({ children }: { children: React.ReactNode }) {
               id: d.id,
               ...raw,
               sellingPrice,
-              previousPrice,
+              previousPrice: previousPrice > sellingPrice ? previousPrice : Number(raw.previousPrice ?? 0) || 0,
               stockQuantity,
               images,
-              manufacturer: raw.manufacturer || raw.brand || '',
-              categoryName: raw.categoryName || raw.category || '',
+              manufacturer: raw.manufacturer || raw.brand || raw.company || '',
+              categoryName: raw.categoryName || raw.category || String(raw.categoryNameEn || ''),
               unitSize: raw.unitSize || raw.packSize || '',
+              usageInstructions: raw.usageInstructions || String(raw.usageInfo || raw.usageSummary || ''),
+              storageInstructions: raw.storageInstructions || String(raw.storageInfo || ''),
               publicationStatus:
                 raw.publicationStatus || (raw.isActive || raw.status === 'active' ? 'published' : 'draft'),
               availabilityStatus: raw.availabilityStatus || (stockQuantity > 0 ? 'in_stock' : 'out_of_stock'),
@@ -177,7 +208,80 @@ export function StoreDataProvider({ children }: { children: React.ReactNode }) {
       onSnapshot(
         buildStaffQuery('orders'),
         (snap) => {
-          const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Order, 'id'>) }));
+          const mapCustomerStatus = (rawStatus: unknown): Order['orderStatus'] => {
+            const s = String(rawStatus || '').trim().toLowerCase().replace(/\s+/g, '_');
+            switch (s) {
+              case 'pending':
+                return 'pending';
+              case 'awaiting_review':
+                return 'awaiting_review';
+              case 'confirmed':
+                return 'confirmed';
+              case 'processing':
+                return 'processing';
+              case 'ready_for_dispatch':
+                return 'ready_for_dispatch';
+              case 'shipped':
+                return 'shipped';
+              case 'delivered':
+                return 'delivered';
+              case 'cancelled':
+                return 'cancelled';
+              case 'refund_pending':
+                return 'refund_pending';
+              case 'refunded':
+                return 'refunded';
+              default:
+                return 'pending';
+            }
+          };
+
+          const list = snap.docs.map((d) => {
+            const raw = d.data() as Record<string, unknown>;
+            const rawPayStatus = String(raw.paymentStatus || 'unpaid');
+            const paymentStatus: Order['paymentStatus'] =
+              rawPayStatus === 'paid'
+                ? 'verified_paid'
+                : (rawPayStatus as Order['paymentStatus']) || 'unpaid';
+            const requiresPrescription = Boolean(raw.requiresPrescription);
+            const addressParts = [raw.deliveryAddress, raw.area, raw.district]
+              .map((p) => String(p || '').trim())
+              .filter(Boolean);
+
+            return {
+              id: d.id,
+              ...(raw as Omit<Order, 'id'>),
+              orderNumber: String(raw.orderNumber || d.id),
+              customerId: String(raw.customerId || raw.userId || ''),
+              customerName: String(raw.customerName || 'Customer'),
+              customerPhone: String(raw.customerPhone || ''),
+              shippingAddress: String(raw.shippingAddress || addressParts.join(', ')),
+              deliveryZone: String(raw.deliveryZone || ''),
+              deliveryInstructions: String(raw.deliveryInstructions || raw.orderNotes || ''),
+              itemCount: Math.max(1, Number(raw.itemCount ?? 1) || 1),
+              itemsSummary: String(
+                raw.itemsSummary || `${Math.max(1, Number(raw.itemCount ?? 1) || 1)} item(s)`
+              ),
+              subtotalBdt: Number(raw.subtotalBdt ?? raw.subtotal ?? 0) || 0,
+              discountBdt: Number(raw.discountBdt ?? raw.discountAmount ?? 0) || 0,
+              couponCode: String(raw.couponCode || ''),
+              deliveryFeeBdt: Number(raw.deliveryFeeBdt ?? raw.deliveryFee ?? 0) || 0,
+              totalAmountBdt: Number(raw.totalAmountBdt ?? raw.totalAmount ?? 0) || 0,
+              paymentMethod: String(raw.paymentMethod || 'cod'),
+              paymentStatus,
+              transactionReference: String(raw.transactionReference || raw.paymentSenderRef || ''),
+              paymentVerifiedAt: String(raw.paymentVerifiedAt || ''),
+              requiresPrescription,
+              prescriptionReviewId: String(raw.prescriptionReviewId || raw.prescriptionId || ''),
+              prescriptionReviewStatus:
+                (raw.prescriptionReviewStatus as Order['prescriptionReviewStatus']) ||
+                (requiresPrescription ? 'pending_review' : 'not_required'),
+              orderStatus: mapCustomerStatus(raw.orderStatus || raw.status),
+              courierName: String(raw.courierName || ''),
+              trackingReference: String(raw.trackingReference || ''),
+              cancellationReason: String(raw.cancellationReason || ''),
+            };
+          });
           list.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
           setOrders(list);
           markReady();
@@ -214,7 +318,39 @@ export function StoreDataProvider({ children }: { children: React.ReactNode }) {
       onSnapshot(
         buildStaffQuery('prescriptionReviews'),
         (snap) => {
-          const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<PrescriptionReview, 'id'>) }));
+          const list = snap.docs.map((d) => {
+            const raw = d.data() as Record<string, unknown>;
+            const rawStatus = String(raw.reviewStatus || raw.status || 'pending_review');
+            const reviewStatus: PrescriptionReview['reviewStatus'] =
+              rawStatus === 'needs_info'
+                ? 'more_info_requested'
+                : (rawStatus as PrescriptionReview['reviewStatus']);
+            const productIds = Array.isArray(raw.productIds) ? (raw.productIds as string[]) : [];
+            return {
+              id: d.id,
+              ...(raw as Omit<PrescriptionReview, 'id'>),
+              orderId: String(raw.orderId || ''),
+              orderNumber: String(raw.orderNumber || d.id),
+              customerId: String(raw.customerId || raw.userId || ''),
+              customerName: String(raw.customerName || 'Patient'),
+              medicineSummary: String(
+                raw.medicineSummary ||
+                  raw.notes ||
+                  (productIds.length > 0 ? `Product IDs: ${productIds.join(', ')}` : 'Submitted Prescription')
+              ),
+              documentUrl: String(raw.documentUrl || raw.storageFilePath || ''),
+              documentMimeType: String(raw.documentMimeType || 'image/jpeg'),
+              prescriberName: String(raw.prescriberName || raw.doctorName || ''),
+              clinicOrHospital: String(raw.clinicOrHospital || ''),
+              prescriptionIssueDate: String(raw.prescriptionIssueDate || raw.prescriptionDate || ''),
+              reviewStatus,
+              reviewerUid: String(raw.reviewerUid || ''),
+              reviewerName: String(raw.reviewerName || ''),
+              reviewerLicense: String(raw.reviewerLicense || ''),
+              reviewNotes: String(raw.reviewNotes || raw.pharmacistNotes || ''),
+              reviewedAt: String(raw.reviewedAt || ''),
+            };
+          });
           list.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
           setPrescriptionReviews(list);
         },
@@ -226,7 +362,21 @@ export function StoreDataProvider({ children }: { children: React.ReactNode }) {
       onSnapshot(
         buildStaffQuery('users'),
         (snap) => {
-          const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<UserAccount, 'id'>) }));
+          const list = snap.docs.map((d) => {
+            const raw = d.data() as Record<string, unknown>;
+            const accountStatus: UserAccount['accountStatus'] =
+              (raw.accountStatus as UserAccount['accountStatus']) ||
+              (raw.accountDeletionRequested === true ? 'deletion_requested' : 'active');
+            return {
+              id: d.id,
+              ...(raw as Omit<UserAccount, 'id'>),
+              uid: String(raw.uid || d.id),
+              displayName: String(raw.displayName || 'Customer'),
+              accountStatus,
+              orderCount: Number(raw.orderCount ?? 0) || 0,
+              totalSpentBdt: Number(raw.totalSpentBdt ?? 0) || 0,
+            };
+          });
           list.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
           setCustomers(list);
         },
@@ -238,7 +388,32 @@ export function StoreDataProvider({ children }: { children: React.ReactNode }) {
       onSnapshot(
         buildStaffQuery('supportTickets'),
         (snap) => {
-          const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SupportTicket, 'id'>) }));
+          const mapCategory = (cat: unknown): SupportTicket['category'] => {
+            const c = String(cat || '');
+            if (c === 'medicine_query') return 'medicine_query';
+            if (c === 'delivery' || c === 'delivery_delay') return 'delivery_delay';
+            if (c === 'payment' || c === 'refund_request') return 'refund_request';
+            if (c === 'account' || c === 'account_deletion') return 'account_deletion';
+            return 'order_issue';
+          };
+
+          const list = snap.docs.map((d) => {
+            const raw = d.data() as Record<string, unknown>;
+            return {
+              id: d.id,
+              ...(raw as Omit<SupportTicket, 'id'>),
+              ticketNumber: String(raw.ticketNumber || raw.orderNumber || `TKT-${d.id.slice(-6).toUpperCase()}`),
+              customerId: String(raw.customerId || raw.userId || ''),
+              customerName: String(raw.customerName || 'Customer'),
+              subject: String(raw.subject || 'Support Inquiry'),
+              category: mapCategory(raw.category),
+              priority: (raw.priority as SupportTicket['priority']) || 'medium',
+              status: (raw.status as SupportTicket['status']) || 'open',
+              message: String(raw.message || ''),
+              staffResolutionNote: String(raw.staffResolutionNote || raw.adminReply || ''),
+              assignedToUid: String(raw.assignedToUid || ''),
+            };
+          });
           list.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
           setSupportTickets(list);
         },
@@ -250,7 +425,30 @@ export function StoreDataProvider({ children }: { children: React.ReactNode }) {
       onSnapshot(
         buildStaffQuery('coupons'),
         (snap) => {
-          setCoupons(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Coupon, 'id'>) })));
+          setCoupons(
+            snap.docs.map((d) => {
+              const raw = d.data() as Record<string, unknown>;
+              const rawType = String(raw.discountType || 'percentage');
+              return {
+                id: d.id,
+                ...(raw as Omit<Coupon, 'id'>),
+                code: String(raw.code || d.id).toUpperCase(),
+                description: String(raw.description || ''),
+                discountType: rawType === 'fixed' ? 'fixed_bdt' : (rawType as Coupon['discountType']),
+                discountValue: Number(raw.discountValue ?? 0) || 0,
+                minOrderAmountBdt: Number(raw.minOrderAmountBdt ?? raw.minOrderAmount ?? 0) || 0,
+                maxDiscountBdt: Number(raw.maxDiscountBdt ?? raw.maxDiscountAmount ?? 0) || 0,
+                startDate: String(raw.startDate || ''),
+                endDate: String(raw.endDate || ''),
+                usageLimit: Number(raw.usageLimit ?? 1000) || 1000,
+                usedCount: Number(raw.usedCount ?? 0) || 0,
+                applicableCategory: String(raw.applicableCategory || 'all'),
+                status:
+                  (raw.status as Coupon['status']) ||
+                  (raw.isActive === false ? 'inactive' : 'active'),
+              };
+            })
+          );
         },
         onListenerError('coupons')
       )

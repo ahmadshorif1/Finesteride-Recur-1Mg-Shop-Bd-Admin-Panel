@@ -280,6 +280,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               updatedAt: serverTimestamp(),
             });
 
+            try {
+              await setDoc(doc(db, 'admins', uid), {
+                uid,
+                email: cleanEmail.slice(0, 160),
+                role: 'admin',
+                createdAt: serverTimestamp(),
+              });
+            } catch {
+              // Non-blocking Customer Panel /admins mirror
+            }
+
             const createdSnap = await getDoc(staffRef);
             if (createdSnap.exists()) {
               setStaffProfile({

@@ -636,6 +636,46 @@
     "/staffPushDevices/{deviceId}": {
       "schema": "StaffPushDevice",
       "description": "Authorized pharmacy staff Web Push (FCM VAPID) device subscriptions."
+    },
+    "/admins/{adminId}": {
+      "schema": "StaffMember",
+      "description": "Shared Customer Panel + Admin Panel administrator UID registry."
+    },
+    "/settings/{settingId}": {
+      "schema": "SiteSettings",
+      "description": "Customer Panel site settings alias collection."
+    },
+    "/banners/{bannerId}": {
+      "schema": "SiteSettings",
+      "description": "Customer Panel promotional hero banners."
+    },
+    "/Categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Customer Panel category collection alias."
+    },
+    "/Products/{productId}": {
+      "schema": "Product",
+      "description": "Customer Panel product collection alias."
+    },
+    "/medicines/{medicineId}": {
+      "schema": "Product",
+      "description": "Customer Panel medicine catalog alias."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": "UserPrivateProfile",
+      "description": "Customer Panel isolated customer PII subcollection."
+    },
+    "/users/{userId}/addresses/{addressId}": {
+      "schema": "UserPrivateProfile",
+      "description": "Customer saved delivery addresses subcollection."
+    },
+    "/users/{userId}/cart/{cartItemId}": {
+      "schema": "OrderItem",
+      "description": "Authenticated customer cross-device shopping cart subcollection."
+    },
+    "/notifications/{notificationId}": {
+      "schema": "OrderStatusHistory",
+      "description": "Customer Panel order, prescription, and support notifications."
     }
   }
 }
