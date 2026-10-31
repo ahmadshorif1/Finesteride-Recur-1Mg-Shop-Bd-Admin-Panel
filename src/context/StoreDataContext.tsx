@@ -1,7 +1,7 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType, SHARED_STORE_ID } from '../lib/firebase';
-import type { ActorContext } from '../services/pharmacyService';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { collection, doc, onSnapshot } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { syncCatalogToCustomerPanel, type ActorContext } from '../services/pharmacyService';
 import type {
   AdminAuditLog,
   Category,
@@ -47,6 +47,7 @@ export function StoreDataProvider({ children }: { children: React.ReactNode }) {
   const [reloadNonce, setReloadNonce] = useState(0);
   const [loading, setLoading] = useState(true);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const autoBackfillDoneRef = useRef(false);
 
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -77,17 +78,10 @@ export function StoreDataProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     setSyncError(null);
 
-    const buildStaffQuery = (colName: string) => {
-      const colRef = collection(db, colName);
-      if (isBootstrappedSuperAdmin) {
-        return query(colRef, where('storeId', '==', SHARED_STORE_ID));
-      }
-      return query(
-        colRef,
-        where('storeId', '==', SHARED_STORE_ID),
-        where('authorizedStaffUids', 'array-contains', user.uid)
-      );
-    };
+    // Subscribe directly to collections so records created from either Admin Panel,
+    // Customer Panel, or Firebase Console (even without storeId/authorizedStaffUids)
+    // always sync in real time.
+    const buildStaffQuery = (colName: string) => collection(db, colName);
 
     const onListenerError = (path: string) => (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
@@ -129,7 +123,7 @@ export function StoreDataProvider({ children }: { children: React.ReactNode }) {
         buildStaffQuery('categories'),
         (snap) => {
           const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Category, 'id'>) }));
-          list.sort((a, b) => a.displayOrder - b.displayOrder);
+          list.sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
           setCategories(list);
           markReady();
         },
@@ -141,7 +135,36 @@ export function StoreDataProvider({ children }: { children: React.ReactNode }) {
       onSnapshot(
         buildStaffQuery('products'),
         (snap) => {
-          const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Product, 'id'>) }));
+          const list = snap.docs.map((d) => {
+            const raw = d.data() as Omit<Product, 'id'>;
+            const sellingPrice = Number(raw.sellingPrice ?? raw.price ?? 0) || 0;
+            const previousPrice = Number(raw.previousPrice ?? raw.originalPrice ?? 0) || 0;
+            const stockQuantity = Number(raw.stockQuantity ?? raw.stock ?? 0) || 0;
+            const images = Array.isArray(raw.images)
+              ? raw.images
+              : raw.imageUrl
+              ? [raw.imageUrl]
+              : raw.image
+              ? [raw.image]
+              : [];
+            return {
+              id: d.id,
+              ...raw,
+              sellingPrice,
+              previousPrice,
+              stockQuantity,
+              images,
+              manufacturer: raw.manufacturer || raw.brand || '',
+              categoryName: raw.categoryName || raw.category || '',
+              unitSize: raw.unitSize || raw.packSize || '',
+              publicationStatus:
+                raw.publicationStatus || (raw.isActive || raw.status === 'active' ? 'published' : 'draft'),
+              availabilityStatus: raw.availabilityStatus || (stockQuantity > 0 ? 'in_stock' : 'out_of_stock'),
+              prescriptionType:
+                raw.prescriptionType ||
+                (raw.requiresPrescription || raw.prescriptionRequired ? 'prescription_required' : 'otc'),
+            };
+          });
           list.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
           setProducts(list);
           markReady();
@@ -168,7 +191,7 @@ export function StoreDataProvider({ children }: { children: React.ReactNode }) {
         buildStaffQuery('productBatches'),
         (snap) => {
           const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ProductBatch, 'id'>) }));
-          list.sort((a, b) => a.expiryDate.localeCompare(b.expiryDate));
+          list.sort((a, b) => (a.expiryDate || '').localeCompare(b.expiryDate || ''));
           setProductBatches(list);
         },
         onListenerError('productBatches')
@@ -291,6 +314,48 @@ export function StoreDataProvider({ children }: { children: React.ReactNode }) {
       activeStaffUids: Array.from(new Set([user.uid, ...activeUids])).slice(0, 20),
     };
   }, [user, effectiveRole, staffMembers, staffProfile, isBootstrappedSuperAdmin]);
+
+  // Automatically backfill Customer Panel compatibility mirror fields once per session
+  // if existing products or categories in Firestore were created before dual-schema sync.
+  useEffect(() => {
+    if (
+      loading ||
+      autoBackfillDoneRef.current ||
+      !actor ||
+      !['super_admin', 'store_admin'].includes(actor.role)
+    ) {
+      return;
+    }
+
+    const needsProductBackfill = products.some(
+      (p) =>
+        p.price === undefined ||
+        p.categorySlug === undefined ||
+        p.status === undefined ||
+        p.published === undefined ||
+        p.inStock === undefined
+    );
+    const needsCategoryBackfill = categories.some(
+      (c) => c.status === undefined || c.published === undefined || c.order === undefined
+    );
+
+    if (!needsProductBackfill && !needsCategoryBackfill) {
+      return;
+    }
+
+    autoBackfillDoneRef.current = true;
+    void syncCatalogToCustomerPanel(actor, {
+      categories,
+      products,
+      siteSettings,
+      deliveryZones,
+      coupons,
+      publishDrafts: false,
+      silent: true,
+    }).catch((err) => {
+      console.warn('Background Customer Panel compatibility backfill skipped:', err);
+    });
+  }, [loading, actor, products, categories, siteSettings, deliveryZones, coupons]);
 
   return (
     <StoreDataContext.Provider

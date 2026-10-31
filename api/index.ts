@@ -493,6 +493,232 @@ export function createApiRouter(): Router {
     });
   });
 
+  // 1c. Public CORS-Enabled Storefront Catalog Feed (for external Customer Panel integrations)
+  const parseFirestoreRestValue = (val: Record<string, unknown> | undefined): unknown => {
+    if (!val || typeof val !== 'object') return null;
+    if ('stringValue' in val) return val.stringValue;
+    if ('booleanValue' in val) return Boolean(val.booleanValue);
+    if ('integerValue' in val) return Number(val.integerValue);
+    if ('doubleValue' in val) return Number(val.doubleValue);
+    if ('timestampValue' in val) return val.timestampValue;
+    if ('nullValue' in val) return null;
+    if ('arrayValue' in val) {
+      const arr = (val.arrayValue as { values?: Array<Record<string, unknown>> })?.values || [];
+      return arr.map((item) => parseFirestoreRestValue(item));
+    }
+    if ('mapValue' in val) {
+      const fields =
+        (val.mapValue as { fields?: Record<string, Record<string, unknown>> })?.fields || {};
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(fields)) {
+        out[k] = parseFirestoreRestValue(v);
+      }
+      return out;
+    }
+    return null;
+  };
+
+  const fetchPublicFirestoreCollection = async (
+    projectId: string,
+    databaseId: string,
+    collectionName: string
+  ): Promise<Array<Record<string, unknown>>> => {
+    const baseDocsUrl = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
+      projectId
+    )}/databases/${encodeURIComponent(databaseId)}/documents`;
+    const url = `${baseDocsUrl}/${encodeURIComponent(collectionName)}?pageSize=300`;
+    const resp = await fetch(url, { method: 'GET' });
+    if (resp.ok) {
+      const payload = (await resp.json()) as {
+        documents?: Array<{
+          name: string;
+          fields?: Record<string, Record<string, unknown>>;
+        }>;
+      };
+      return (payload.documents || []).map((docItem) => {
+        const id = docItem.name.split('/').pop() || '';
+        const parsed: Record<string, unknown> = { id };
+        for (const [k, v] of Object.entries(docItem.fields || {})) {
+          parsed[k] = parseFirestoreRestValue(v);
+        }
+        return parsed;
+      });
+    }
+
+    // Fallback when strict rules require publicationStatus == 'published' or status == 'active'
+    const filterField =
+      collectionName === 'deliveryZones' || collectionName === 'coupons'
+        ? 'status'
+        : 'publicationStatus';
+    const filterValue =
+      collectionName === 'deliveryZones' || collectionName === 'coupons'
+        ? 'active'
+        : 'published';
+
+    const queryResp = await fetch(`${baseDocsUrl}:runQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        structuredQuery: {
+          from: [{ collectionId: collectionName }],
+          where: {
+            fieldFilter: {
+              field: { fieldPath: filterField },
+              op: 'EQUAL',
+              value: { stringValue: filterValue },
+            },
+          },
+          limit: 300,
+        },
+      }),
+    });
+    if (!queryResp.ok) {
+      return [];
+    }
+    const rows = (await queryResp.json()) as Array<{
+      document?: {
+        name: string;
+        fields?: Record<string, Record<string, unknown>>;
+      };
+    }>;
+    return rows
+      .filter((r) => Boolean(r.document))
+      .map((r) => {
+        const docItem = r.document!;
+        const id = docItem.name.split('/').pop() || '';
+        const parsed: Record<string, unknown> = { id };
+        for (const [k, v] of Object.entries(docItem.fields || {})) {
+          parsed[k] = parseFirestoreRestValue(v);
+        }
+        return parsed;
+      });
+  };
+
+  const setPublicCorsHeaders = (res: Response) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Cache-Control', 'no-store');
+  };
+
+  router.options('/public/catalog', (_req: Request, res: Response) => {
+    setPublicCorsHeaders(res);
+    res.status(204).end();
+  });
+  router.options('/public/products', (_req: Request, res: Response) => {
+    setPublicCorsHeaders(res);
+    res.status(204).end();
+  });
+  router.options('/public/categories', (_req: Request, res: Response) => {
+    setPublicCorsHeaders(res);
+    res.status(204).end();
+  });
+
+  router.get('/public/products', async (_req: Request, res: Response) => {
+    setPublicCorsHeaders(res);
+    try {
+      const cfg = loadFirebaseWebConfig();
+      const rawProducts = await fetchPublicFirestoreCollection(
+        cfg.projectId,
+        cfg.firestoreDatabaseId,
+        'products'
+      );
+      const publishedProducts = rawProducts.filter(
+        (p) =>
+          p.publicationStatus === 'published' ||
+          p.isActive === true ||
+          p.status === 'active'
+      );
+      res.json({
+        ok: true,
+        storeId: STORE_ID,
+        projectId: cfg.projectId,
+        databaseId: cfg.firestoreDatabaseId,
+        count: publishedProducts.length,
+        products: publishedProducts,
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to load public products.',
+      });
+    }
+  });
+
+  router.get('/public/categories', async (_req: Request, res: Response) => {
+    setPublicCorsHeaders(res);
+    try {
+      const cfg = loadFirebaseWebConfig();
+      const rawCategories = await fetchPublicFirestoreCollection(
+        cfg.projectId,
+        cfg.firestoreDatabaseId,
+        'categories'
+      );
+      const publishedCategories = rawCategories.filter(
+        (c) =>
+          c.publicationStatus === 'published' ||
+          c.isActive === true ||
+          c.status === 'active'
+      );
+      res.json({
+        ok: true,
+        storeId: STORE_ID,
+        projectId: cfg.projectId,
+        databaseId: cfg.firestoreDatabaseId,
+        count: publishedCategories.length,
+        categories: publishedCategories,
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to load public categories.',
+      });
+    }
+  });
+
+  router.get('/public/catalog', async (_req: Request, res: Response) => {
+    setPublicCorsHeaders(res);
+    try {
+      const cfg = loadFirebaseWebConfig();
+      const [rawProducts, rawCategories, rawZones, rawSettings] = await Promise.all([
+        fetchPublicFirestoreCollection(cfg.projectId, cfg.firestoreDatabaseId, 'products'),
+        fetchPublicFirestoreCollection(cfg.projectId, cfg.firestoreDatabaseId, 'categories'),
+        fetchPublicFirestoreCollection(cfg.projectId, cfg.firestoreDatabaseId, 'deliveryZones'),
+        fetchPublicFirestoreCollection(cfg.projectId, cfg.firestoreDatabaseId, 'siteSettings'),
+      ]);
+      const products = rawProducts.filter(
+        (p) =>
+          p.publicationStatus === 'published' ||
+          p.isActive === true ||
+          p.status === 'active'
+      );
+      const categories = rawCategories.filter(
+        (c) =>
+          c.publicationStatus === 'published' ||
+          c.isActive === true ||
+          c.status === 'active'
+      );
+      const deliveryZones = rawZones.filter((z) => z.status === 'active');
+      const siteSettings =
+        rawSettings.find((s) => s.id === 'storefront_config') || rawSettings[0] || null;
+      res.json({
+        ok: true,
+        storeId: STORE_ID,
+        projectId: cfg.projectId,
+        databaseId: cfg.firestoreDatabaseId,
+        products,
+        categories,
+        deliveryZones,
+        siteSettings,
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to load public catalog.',
+      });
+    }
+  });
+
   // 2. Trusted Identity & Account Status Verification
   router.post('/auth/verify-session', requireVerifiedAuth, (req: AuthenticatedRequest, res: Response) => {
     res.json({

@@ -1,29 +1,37 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
   Archive,
+  Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Edit3,
   Eye,
   Package,
   Plus,
+  RefreshCw,
   Search,
   Upload,
   X,
 } from 'lucide-react';
+import firestoreRulesRaw from '../../firestore.rules?raw';
 import { useAuth } from '../context/AuthContext';
 import { useStoreData } from '../context/StoreDataContext';
-import { formatBdt, formatTimestamp } from '../lib/validation';
+import { buildCustomerPanelEnvTemplate, getFirebaseProjectInfo } from '../lib/firebase';
+import { formatBdt, formatTimestamp, isDateExpired } from '../lib/validation';
 import {
   bootstrapReferenceStructure,
   bulkUpdateProductPublication,
   OFFICIAL_STOREFRONT_CATEGORIES,
+  probeCustomerPanelCatalogFeed,
   saveProduct,
+  syncCatalogToCustomerPanel,
   uploadCatalogAsset,
   VERIFIED_PHARMA_BRANDS,
+  type CustomerPanelFeedProbeResult,
   type ProductFormInput,
 } from '../services/pharmacyService';
 import type { Product } from '../types/pharmacy';
@@ -77,6 +85,41 @@ export function ProductsView() {
   const [saving, setSaving] = useState(false);
   const [uploadingImg, setUploadingImg] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncingCatalog, setSyncingCatalog] = useState(false);
+  const [probingFeed, setProbingFeed] = useState(false);
+  const [probeResult, setProbeResult] = useState<CustomerPanelFeedProbeResult | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const projectInfo = getFirebaseProjectInfo();
+  const draftProductsCount = useMemo(
+    () => products.filter((p) => p.publicationStatus === 'draft').length,
+    [products]
+  );
+  const unsyncedProductsCount = useMemo(
+    () =>
+      products.filter(
+        (p) =>
+          p.publicationStatus !== 'archived' &&
+          (p.price === undefined || !p.categorySlug || !p.status)
+      ).length,
+    [products]
+  );
+
+  useEffect(() => {
+    if (!permissions?.canManageCatalog) return;
+    let cancelled = false;
+    void probeCustomerPanelCatalogFeed().then((res) => {
+      if (!cancelled) {
+        setProbeResult(res);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [permissions?.canManageCatalog]);
 
   const uniqueCompanies = useMemo(() => {
     const s = new Set(products.map((p) => p.manufacturer).filter(Boolean));
@@ -220,6 +263,59 @@ export function ProductsView() {
     }
   };
 
+  const handleSyncToCustomerPanel = async (publishDrafts = true) => {
+    if (!actor) return;
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    setSyncingCatalog(true);
+    try {
+      const res = await syncCatalogToCustomerPanel(actor, {
+        categories,
+        products,
+        siteSettings,
+        deliveryZones,
+        coupons,
+        publishDrafts,
+      });
+      setSuccessMsg(
+        `কাস্টমার প্যানেলে সফলভাবে সিঙ্ক হয়েছে (${res.syncedProducts}টি প্রোডাক্ট ও ${res.syncedCategories}টি ক্যাটাগরি আপডেট হয়েছে${
+          res.publishedDrafts > 0 ? `, ${res.publishedDrafts}টি Draft প্রোডাক্ট পাবলিশ করা হয়েছে` : ''
+        })।`
+      );
+      const probe = await probeCustomerPanelCatalogFeed();
+      setProbeResult(probe);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Customer Panel sync failed.');
+    } finally {
+      setSyncingCatalog(false);
+    }
+  };
+
+  const handleRunFeedProbe = async () => {
+    setProbingFeed(true);
+    setErrorMsg(null);
+    try {
+      const res = await probeCustomerPanelCatalogFeed();
+      setProbeResult(res);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to test Customer Panel feed.');
+    } finally {
+      setProbingFeed(false);
+    }
+  };
+
+  const handleCopyText = async (key: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => {
+        setCopiedKey((prev) => (prev === key ? null : prev));
+      }, 2500);
+    } catch {
+      setErrorMsg('Clipboard copy failed in this browser context.');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -233,17 +329,106 @@ export function ProductsView() {
         </div>
 
         {permissions?.canManageCatalog && (
-          <button
-            type="button"
-            disabled={categories.length === 0}
-            onClick={openCreateModal}
-            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-[#0D7E74] hover:bg-[#086058] disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap shrink-0 no-print"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Product</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0 no-print">
+            <button
+              type="button"
+              onClick={() => {
+                setSyncModalOpen(true);
+                void handleRunFeedProbe();
+              }}
+              className="inline-flex items-center gap-2 px-3.5 py-2.5 text-sm font-medium text-[#0D7E74] bg-white hover:bg-[#F2F8F4] border border-[#0D7E74] rounded-lg transition-colors whitespace-nowrap shrink-0"
+            >
+              <RefreshCw className={`w-4 h-4 ${syncingCatalog ? 'animate-spin' : ''}`} />
+              <span>Customer Panel Sync</span>
+            </button>
+            <button
+              type="button"
+              disabled={categories.length === 0}
+              onClick={openCreateModal}
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-[#0D7E74] hover:bg-[#086058] disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Product</span>
+            </button>
+          </div>
         )}
       </div>
+
+      {permissions?.canManageCatalog && probeResult && !probeResult.unfilteredListAllowed && (
+        <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-xl p-4 text-sm text-[#92400E] flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold">
+                কাস্টমার প্যানেল Firestore Rules আপডেট প্রয়োজন ({projectInfo.projectId})
+              </p>
+              <p className="text-xs mt-0.5 leading-relaxed">
+                আপনার কাস্টমার প্যানেল থেকে প্রোডাক্ট সরাসরি লোড হওয়ার জন্য আপডেটেড <span className="font-mono font-semibold">firestore.rules</span> কপি করে Firebase Console → Firestore Database → Rules-এ পেস্ট করে <strong>Publish</strong> করুন।
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleCopyText('banner_rules', firestoreRulesRaw)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-[#D97706] hover:bg-[#B45309] rounded-lg whitespace-nowrap shrink-0"
+          >
+            {copiedKey === 'banner_rules' ? (
+              <Check className="w-3.5 h-3.5" />
+            ) : (
+              <Copy className="w-3.5 h-3.5" />
+            )}
+            <span>
+              {copiedKey === 'banner_rules' ? 'firestore.rules কপি হয়েছে!' : 'Copy Updated firestore.rules'}
+            </span>
+          </button>
+        </div>
+      )}
+
+      {permissions?.canManageCatalog && (draftProductsCount > 0 || unsyncedProductsCount > 0) && (
+        <div className="bg-[#F0FDFA] border border-[#99F6E4] rounded-xl p-4 text-sm text-[#0F172A] flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-[#0D7E74] shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-[#0F172A]">
+                কাস্টমার প্যানেলে দৃশ্যমানতা সিঙ্ক (Customer Panel Visibility Notice)
+              </p>
+              <p className="text-xs text-[#475569] mt-0.5">
+                {draftProductsCount > 0
+                  ? `${draftProductsCount}টি প্রোডাক্ট বর্তমানে Draft অবস্থায় আছে (কাস্টমার প্যানেলে লুকানো)। `
+                  : ''}
+                {unsyncedProductsCount > 0
+                  ? `${unsyncedProductsCount}টি প্রোডাক্টে কাস্টমার প্যানেল মিরর ফিল্ড সিঙ্ক করা প্রয়োজন। `
+                  : ''}
+                এক ক্লিকে সব প্রোডাক্ট কাস্টমার প্যানেলে সিঙ্ক ও পাবলিশ করতে পাশে ক্লিক করুন।
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={syncingCatalog}
+            onClick={() => void handleSyncToCustomerPanel(true)}
+            className="px-3.5 py-2 text-xs font-semibold text-white bg-[#0D7E74] hover:bg-[#086058] disabled:opacity-50 rounded-lg whitespace-nowrap shrink-0"
+          >
+            {syncingCatalog ? 'Syncing...' : 'Sync & Publish to Customer Panel'}
+          </button>
+        </div>
+      )}
+
+      {successMsg && (
+        <div className="bg-[#F0FDF4] border border-[#BBF7D0] rounded-xl p-4 text-sm text-[#166534] flex items-center justify-between gap-3 no-print">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSuccessMsg(null)}
+            className="text-xs text-[#166534] hover:underline whitespace-nowrap shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {categories.length === 0 && (
         <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-xl p-4 text-sm text-[#92400E] flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
@@ -970,6 +1155,11 @@ export function ProductsView() {
                     onChange={(e) => setForm({ ...form, nearestExpiryDate: e.target.value })}
                     className="w-full px-3 py-2 text-sm font-mono border border-[#E6ECEF] rounded-lg"
                   />
+                  {form.nearestExpiryDate && isDateExpired(form.nearestExpiryDate) && (
+                    <p className="text-xs text-[#B45309] mt-1.5 leading-snug">
+                      সতর্কতা: মেয়াদোত্তীর্ণ তারিখ দেওয়ার কারণে প্রোডাক্টটি স্বয়ংক্রিয়ভাবে Draft (Expired Restricted) হয়ে থাকবে এবং কাস্টমার প্যানেলে দেখাবে না। কাস্টমার প্যানেলে দেখাতে ভবিষ্যতের সঠিক মেয়াদ দিন।
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1153,6 +1343,142 @@ export function ProductsView() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Customer Panel Sync & Diagnostics Modal */}
+      {syncModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 no-print">
+          <div className="bg-white border border-[#E6ECEF] rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-5">
+            <div className="flex items-start justify-between gap-4 border-b border-[#EEF2F6] pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-[#0F172A]">
+                  কাস্টমার প্যানেল সিঙ্ক ও ডায়াগনস্টিক (Customer Panel Sync)
+                </h2>
+                <p className="text-xs text-[#64748B] mt-0.5">
+                  Active Firebase Project:{' '}
+                  <span className="font-mono font-semibold text-[#0F172A]">{projectInfo.projectId}</span>{' '}
+                  · Database:{' '}
+                  <span className="font-mono font-semibold text-[#0F172A]">{projectInfo.databaseId}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSyncModalOpen(false)}
+                className="p-1 text-[#64748B] hover:text-[#0F172A]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#F8FAFB] border border-[#E6ECEF] space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-[#0F172A]">
+                    ১. কাস্টমার প্যানেলে সব প্রোডাক্ট ও ক্যাটাগরি সিঙ্ক করুন
+                  </h3>
+                  <p className="text-xs text-[#64748B] mt-0.5">
+                    সকল প্রোডাক্টে কাস্টমার প্যানেল ফিল্ড (`price`, `mrp`, `image`, `stock`, `inStock`, `status: &quot;active&quot;`, `published: true`, `categorySlug`) যুক্ত করে এবং Draft প্রোডাক্ট পাবলিশ করে।
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={syncingCatalog}
+                  onClick={() => void handleSyncToCustomerPanel(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#0D7E74] hover:bg-[#086058] disabled:opacity-50 rounded-lg whitespace-nowrap shrink-0"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${syncingCatalog ? 'animate-spin' : ''}`} />
+                  <span>{syncingCatalog ? 'সিঙ্ক হচ্ছে...' : 'সিঙ্ক ও পাবলিশ করুন'}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white border border-[#E6ECEF] space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-[#0F172A]">
+                    ২. কাস্টমার প্যানেল লাইভ ডাটা রিড টেস্ট (Public Feed Check)
+                  </h3>
+                  <p className="text-xs text-[#64748B] mt-0.5">
+                    লগইন ছাড়াই সাধারণ কাস্টমার ব্রাউজার থেকে Firebase প্রোডাক্ট দেখা যাচ্ছে কি না তা সরাসরি যাচাই করে।
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={probingFeed}
+                  onClick={() => void handleRunFeedProbe()}
+                  className="px-3 py-1.5 text-xs font-medium text-[#0F172A] bg-[#F4F7F8] hover:bg-[#E2EEF0] border border-[#E6ECEF] rounded-lg whitespace-nowrap shrink-0"
+                >
+                  {probingFeed ? 'যাচাই হচ্ছে...' : 'পুনরায় টেস্ট করুন'}
+                </button>
+              </div>
+
+              {probeResult && (
+                <div
+                  className={`p-3.5 rounded-lg border text-xs space-y-1.5 ${
+                    probeResult.ok && probeResult.unfilteredListAllowed
+                      ? 'bg-[#F0FDF4] border-[#BBF7D0] text-[#166534]'
+                      : 'bg-[#FFFBEB] border-[#FDE68A] text-[#92400E]'
+                  }`}
+                >
+                  <p className="font-semibold">
+                    {probeResult.ok
+                      ? `কাস্টমার প্যানেল থেকে সরাসরি ${probeResult.publishedProductsCount}টি Published প্রোডাক্ট এবং ${probeResult.publishedCategoriesCount}টি ক্যাটাগরি পড়া যাচ্ছে।`
+                      : 'কাস্টমার প্যানেল রিড ব্লকড রয়েছে — নিচের firestore.rules কপি করে Firebase Console-এ Publish করুন।'}
+                  </p>
+                  {probeResult.sampleProductNames.length > 0 && (
+                    <p className="font-mono text-[11px]">
+                      দৃশ্যমান প্রোডাক্ট: {probeResult.sampleProductNames.join(', ')}
+                    </p>
+                  )}
+                  {probeResult.errorMessage && <p>{probeResult.errorMessage}</p>}
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#F8FAFB] border border-[#E6ECEF] space-y-3">
+              <div>
+                <h3 className="text-sm font-semibold text-[#0F172A]">
+                  ৩. কাস্টমার প্যানেলের Firebase সংযোগ মিলিয়ে নিন (.env ও Security Rules)
+                </h3>
+                <p className="text-xs text-[#64748B] mt-0.5">
+                  কাস্টমার প্যানেল অ্যাপে অবশ্যই একই Firebase Project (<span className="font-mono">{projectInfo.projectId}</span>) এবং Database (<span className="font-mono">{projectInfo.databaseId}</span>) যুক্ত থাকতে হবে।
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => void handleCopyText('env', buildCustomerPanelEnvTemplate())}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-[#0F172A] bg-white hover:bg-[#EEF4F0] border border-[#E6ECEF] rounded-lg whitespace-nowrap shrink-0"
+                >
+                  {copiedKey === 'env' ? (
+                    <Check className="w-3.5 h-3.5 text-[#15803D]" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5 text-[#0D7E74]" />
+                  )}
+                  <span>
+                    {copiedKey === 'env' ? 'Customer Panel .env কপি হয়েছে!' : 'Copy Customer Panel .env'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void handleCopyText('rules', firestoreRulesRaw)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-[#0F172A] bg-white hover:bg-[#EEF4F0] border border-[#E6ECEF] rounded-lg whitespace-nowrap shrink-0"
+                >
+                  {copiedKey === 'rules' ? (
+                    <Check className="w-3.5 h-3.5 text-[#15803D]" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5 text-[#0D7E74]" />
+                  )}
+                  <span>
+                    {copiedKey === 'rules' ? 'firestore.rules কপি হয়েছে!' : 'Copy firestore.rules'}
+                  </span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

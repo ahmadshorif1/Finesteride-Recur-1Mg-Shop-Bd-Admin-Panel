@@ -499,6 +499,80 @@ export const VERIFIED_PHARMA_BRANDS: string[] = [
   'Hamdard Laboratories (Waqf) Bangladesh',
 ];
 
+function buildCategoryCompatibilityFields(params: {
+  cleanName: string;
+  cleanNameBn: string;
+  displayOrder: number;
+  publicationStatus: 'published' | 'hidden';
+  activeProductCount: number;
+}) {
+  const isPublished = params.publicationStatus === 'published';
+  const safeOrder = Math.max(0, Math.min(10000, Number(params.displayOrder) || 0));
+  const safeCount = Math.max(0, Number(params.activeProductCount) || 0);
+  return {
+    isActive: isPublished,
+    status: isPublished ? 'active' : 'inactive',
+    published: isPublished,
+    visibility: isPublished ? 'public' : 'hidden',
+    title: params.cleanName,
+    titleBn: params.cleanNameBn,
+    order: safeOrder,
+    sortOrder: safeOrder,
+    productCount: safeCount,
+  };
+}
+
+function buildProductCompatibilityFields(params: {
+  cleanManufacturer: string;
+  cleanCategoryName: string;
+  cleanCategorySlug: string;
+  cleanCategoryNameBn: string;
+  cleanImages: string[];
+  cleanUnitSize: string;
+  sellingPrice: number;
+  previousPrice: number;
+  stockQuantity: number;
+  availabilityStatus: Product['availabilityStatus'];
+  prescriptionType: Product['prescriptionType'];
+  publicationStatus: Product['publicationStatus'];
+}) {
+  const safeSelling = Math.max(0, Number(params.sellingPrice) || 0);
+  const safePrev = Math.max(0, Number(params.previousPrice) || 0);
+  const mrp = safePrev > safeSelling ? safePrev : safeSelling;
+  const discountPercent =
+    safePrev > safeSelling ? Math.round(((safePrev - safeSelling) / safePrev) * 100) : 0;
+  const primaryImage = params.cleanImages[0] || '';
+  const isPublished = params.publicationStatus === 'published';
+  const inStock = params.stockQuantity > 0 && params.availabilityStatus !== 'expired_restricted';
+  const requiresRx = params.prescriptionType !== 'otc';
+
+  return {
+    brand: params.cleanManufacturer,
+    company: params.cleanManufacturer,
+    category: params.cleanCategoryName,
+    categorySlug: params.cleanCategorySlug,
+    categoryNameBn: params.cleanCategoryNameBn,
+    image: primaryImage,
+    imageUrl: primaryImage,
+    thumbnail: primaryImage,
+    packSize: params.cleanUnitSize,
+    price: safeSelling,
+    mrp,
+    regularPrice: mrp,
+    originalPrice: safePrev,
+    discountPrice: safeSelling,
+    discountPercent,
+    stock: params.stockQuantity,
+    inStock,
+    requiresPrescription: requiresRx,
+    prescriptionRequired: requiresRx,
+    isActive: isPublished,
+    status: isPublished ? 'active' : params.publicationStatus,
+    published: isPublished,
+    visibility: isPublished ? 'public' : 'hidden',
+  };
+}
+
 export async function saveCategory(
   actor: ActorContext,
   input: {
@@ -523,22 +597,31 @@ export async function saveCategory(
   const path = `categories/${categoryId}`;
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const cleanName = sanitizeText(input.name, 100);
-  const isActive = input.publicationStatus === 'published';
+  const cleanNameBn = sanitizeText(input.nameBn, 120);
+  const safeOrder = Math.max(0, Math.min(10000, Number(input.displayOrder) || 0));
+  const safeCount = Math.max(0, Number(input.activeProductCount) || 0);
+  const compatFields = buildCategoryCompatibilityFields({
+    cleanName,
+    cleanNameBn,
+    displayOrder: safeOrder,
+    publicationStatus: input.publicationStatus,
+    activeProductCount: safeCount,
+  });
 
   try {
     if (!isEdit) {
       await setDoc(doc(db, 'categories', categoryId), {
         name: cleanName,
-        nameBn: sanitizeText(input.nameBn, 120),
+        nameBn: cleanNameBn,
         slug,
         description: sanitizeText(input.description, 500),
         iconName: sanitizeText(input.iconName || 'Pill', 40),
         imageUrl: sanitizeSafeUrl(input.imageUrl, 500),
         parentCategoryId: sanitizeText(input.parentCategoryId, 128),
-        displayOrder: Math.max(0, Math.min(10000, Number(input.displayOrder) || 0)),
+        displayOrder: safeOrder,
         publicationStatus: input.publicationStatus,
-        isActive,
-        activeProductCount: Math.max(0, Number(input.activeProductCount) || 0),
+        activeProductCount: safeCount,
+        ...compatFields,
         storeId: SHARED_STORE_ID,
         authorizedStaffUids: staffUids,
         createdAt: serverTimestamp(),
@@ -546,34 +629,46 @@ export async function saveCategory(
       });
     } else {
       const batch = writeBatch(db);
-      batch.update(doc(db, 'categories', categoryId), {
-        name: cleanName,
-        nameBn: sanitizeText(input.nameBn, 120),
-        slug,
-        description: sanitizeText(input.description, 500),
-        iconName: sanitizeText(input.iconName || 'Pill', 40),
-        imageUrl: sanitizeSafeUrl(input.imageUrl, 500),
-        parentCategoryId: sanitizeText(input.parentCategoryId, 128),
-        displayOrder: Math.max(0, Math.min(10000, Number(input.displayOrder) || 0)),
-        publicationStatus: input.publicationStatus,
-        isActive,
-        activeProductCount: Math.max(0, Number(input.activeProductCount) || 0),
-        authorizedStaffUids: staffUids,
-        updatedAt: serverTimestamp(),
-      });
+      batch.set(
+        doc(db, 'categories', categoryId),
+        {
+          name: cleanName,
+          nameBn: cleanNameBn,
+          slug,
+          description: sanitizeText(input.description, 500),
+          iconName: sanitizeText(input.iconName || 'Pill', 40),
+          imageUrl: sanitizeSafeUrl(input.imageUrl, 500),
+          parentCategoryId: sanitizeText(input.parentCategoryId, 128),
+          displayOrder: safeOrder,
+          publicationStatus: input.publicationStatus,
+          activeProductCount: safeCount,
+          ...compatFields,
+          storeId: SHARED_STORE_ID,
+          authorizedStaffUids: staffUids,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
-      // Keep denormalized categoryName on assigned products synced when an admin renames a category
+      // Keep denormalized categoryName / categorySlug / categoryNameBn on assigned products synced
       if (
         productsToSyncCategoryName &&
         productsToSyncCategoryName.length > 0 &&
         ['super_admin', 'store_admin'].includes(actor.role)
       ) {
         const matchingProducts = productsToSyncCategoryName.filter(
-          (p) => p.categoryId === categoryId && p.categoryName !== cleanName
+          (p) =>
+            p.categoryId === categoryId &&
+            (p.categoryName !== cleanName ||
+              p.categorySlug !== slug ||
+              p.categoryNameBn !== cleanNameBn)
         );
         for (const prod of matchingProducts.slice(0, 400)) {
           batch.update(doc(db, 'products', prod.id), {
             categoryName: cleanName,
+            category: cleanName,
+            categorySlug: slug,
+            categoryNameBn: cleanNameBn,
             authorizedStaffUids: staffUids,
             updatedAt: serverTimestamp(),
           });
@@ -686,10 +781,11 @@ export async function reconcileCategoryProductCounts(
         return false;
       }).length;
 
-      if (actualCount !== cat.activeProductCount) {
+      if (actualCount !== cat.activeProductCount || cat.productCount !== actualCount) {
         updatedCategories += 1;
         batch.update(doc(db, 'categories', cat.id), {
           activeProductCount: actualCount,
+          productCount: actualCount,
           authorizedStaffUids: staffUids,
           updatedAt: serverTimestamp(),
         });
@@ -737,6 +833,8 @@ export async function renameBrandAcrossProducts(
     for (const prod of matching.slice(0, 450)) {
       batch.update(doc(db, 'products', prod.id), {
         manufacturer: cleanNew,
+        brand: cleanNew,
+        company: cleanNew,
         authorizedStaffUids: staffUids,
         updatedAt: serverTimestamp(),
       });
@@ -839,6 +937,11 @@ export async function saveProduct(
 
   const cleanSku = sanitizeText(input.sku, 64).replace(/[^a-zA-Z0-9_-]/g, '-');
   const resolvedSku = cleanSku || `SKU-${Date.now().toString(36).toUpperCase()}`;
+  const cleanName = sanitizeText(input.name, 160);
+  const cleanManufacturer = sanitizeText(input.manufacturer, 120);
+  const cleanUnitSize = sanitizeText(input.unitSize, 80);
+  const safeSellingPrice = Math.max(0, Number(input.sellingPrice) || 0);
+  const safePreviousPrice = Math.max(0, Number(input.previousPrice) || 0);
 
   try {
     let pendingMovementPayload: Record<string, unknown> | null = null;
@@ -850,6 +953,23 @@ export async function saveProduct(
         throw new Error('Selected category does not exist.');
       }
       const catData = catSnap.data() as Omit<Category, 'id'>;
+      const cleanCatName = sanitizeText(catData.name || input.categoryName, 100);
+      const cleanCatSlug = toSlug(catData.slug || cleanCatName, 100);
+      const cleanCatNameBn = sanitizeText(catData.nameBn || '', 120);
+      const compatFields = buildProductCompatibilityFields({
+        cleanManufacturer,
+        cleanCategoryName: cleanCatName,
+        cleanCategorySlug: cleanCatSlug,
+        cleanCategoryNameBn: cleanCatNameBn,
+        cleanImages,
+        cleanUnitSize,
+        sellingPrice: safeSellingPrice,
+        previousPrice: safePreviousPrice,
+        stockQuantity: safeStock,
+        availabilityStatus,
+        prescriptionType: input.prescriptionType,
+        publicationStatus: effectivePubStatus,
+      });
 
       let prevCatRef = null;
       let prevCatData: Omit<Category, 'id'> | null = null;
@@ -864,18 +984,18 @@ export async function saveProduct(
       const prodRef = doc(db, 'products', productId);
       if (!isEdit) {
         tx.set(prodRef, {
-          name: sanitizeText(input.name, 160),
+          name: cleanName,
           slug: toSlug(input.slug || input.name, 160),
           genericName: sanitizeText(input.genericName, 160),
-          manufacturer: sanitizeText(input.manufacturer, 120),
+          manufacturer: cleanManufacturer,
           categoryId: input.categoryId,
-          categoryName: sanitizeText(catData.name, 100),
+          categoryName: cleanCatName,
           subcategory: sanitizeText(input.subcategory, 100),
           description: sanitizeText(input.description, 2000),
           images: cleanImages,
-          unitSize: sanitizeText(input.unitSize, 80),
-          sellingPrice: Math.max(0, Number(input.sellingPrice) || 0),
-          previousPrice: Math.max(0, Number(input.previousPrice) || 0),
+          unitSize: cleanUnitSize,
+          sellingPrice: safeSellingPrice,
+          previousPrice: safePreviousPrice,
           stockQuantity: safeStock,
           lowStockThreshold: safeThreshold,
           sku: resolvedSku,
@@ -885,7 +1005,7 @@ export async function saveProduct(
           storageInstructions: sanitizeText(input.storageInstructions, 500),
           nearestExpiryDate: safeExpiry,
           publicationStatus: effectivePubStatus,
-          isActive,
+          ...compatFields,
           featured: Boolean(input.featured),
           popular: Boolean(input.popular),
           storeId: SHARED_STORE_ID,
@@ -895,8 +1015,10 @@ export async function saveProduct(
         });
 
         if (effectivePubStatus !== 'archived') {
+          const nextCatCount = Math.max(0, (catData.activeProductCount || 0) + 1);
           tx.update(catRef, {
-            activeProductCount: Math.max(0, (catData.activeProductCount || 0) + 1),
+            activeProductCount: nextCatCount,
+            productCount: nextCatCount,
             authorizedStaffUids: staffUids,
             updatedAt: serverTimestamp(),
           });
@@ -905,7 +1027,7 @@ export async function saveProduct(
         if (safeStock > 0) {
           pendingMovementPayload = {
             productId,
-            productName: sanitizeText(input.name, 160),
+            productName: cleanName,
             sku: resolvedSku,
             batchNumber: 'INITIAL-OPENING',
             movementType: 'stock_in',
@@ -922,73 +1044,98 @@ export async function saveProduct(
         }
       } else if (previousProduct) {
         if (actor.role === 'inventory_manager') {
+          const primaryImage = cleanImages[0] || '';
           tx.update(prodRef, {
             description: sanitizeText(input.description, 2000),
             images: cleanImages,
-            unitSize: sanitizeText(input.unitSize, 80),
+            image: primaryImage,
+            imageUrl: primaryImage,
+            thumbnail: primaryImage,
+            unitSize: cleanUnitSize,
+            packSize: cleanUnitSize,
             stockQuantity: safeStock,
+            stock: safeStock,
+            inStock: safeStock > 0 && availabilityStatus !== 'expired_restricted',
             lowStockThreshold: safeThreshold,
-            sku: cleanSku,
+            sku: resolvedSku,
             availabilityStatus,
             usageInstructions: sanitizeText(input.usageInstructions, 1000),
             storageInstructions: sanitizeText(input.storageInstructions, 500),
             nearestExpiryDate: safeExpiry,
             publicationStatus: effectivePubStatus,
             isActive,
+            status: isActive ? 'active' : effectivePubStatus,
+            published: isActive,
+            visibility: isActive ? 'public' : 'hidden',
+            storeId: SHARED_STORE_ID,
             authorizedStaffUids: staffUids,
             updatedAt: serverTimestamp(),
           });
         } else {
-          tx.update(prodRef, {
-            name: sanitizeText(input.name, 160),
-            slug: toSlug(input.slug || input.name, 160),
-            genericName: sanitizeText(input.genericName, 160),
-            manufacturer: sanitizeText(input.manufacturer, 120),
-            categoryId: input.categoryId,
-            categoryName: sanitizeText(catData.name, 100),
-            subcategory: sanitizeText(input.subcategory, 100),
-            description: sanitizeText(input.description, 2000),
-            images: cleanImages,
-            unitSize: sanitizeText(input.unitSize, 80),
-            sellingPrice: Math.max(0, Number(input.sellingPrice) || 0),
-            previousPrice: Math.max(0, Number(input.previousPrice) || 0),
-            stockQuantity: safeStock,
-            lowStockThreshold: safeThreshold,
-            sku: cleanSku,
-            availabilityStatus,
-            prescriptionType: input.prescriptionType,
-            usageInstructions: sanitizeText(input.usageInstructions, 1000),
-            storageInstructions: sanitizeText(input.storageInstructions, 500),
-            nearestExpiryDate: safeExpiry,
-            publicationStatus: effectivePubStatus,
-            isActive,
-            featured: Boolean(input.featured),
-            popular: Boolean(input.popular),
-            authorizedStaffUids: staffUids,
-            updatedAt: serverTimestamp(),
-          });
+          tx.set(
+            prodRef,
+            {
+              name: cleanName,
+              slug: toSlug(input.slug || input.name, 160),
+              genericName: sanitizeText(input.genericName, 160),
+              manufacturer: cleanManufacturer,
+              categoryId: input.categoryId,
+              categoryName: cleanCatName,
+              subcategory: sanitizeText(input.subcategory, 100),
+              description: sanitizeText(input.description, 2000),
+              images: cleanImages,
+              unitSize: cleanUnitSize,
+              sellingPrice: safeSellingPrice,
+              previousPrice: safePreviousPrice,
+              stockQuantity: safeStock,
+              lowStockThreshold: safeThreshold,
+              sku: resolvedSku,
+              availabilityStatus,
+              prescriptionType: input.prescriptionType,
+              usageInstructions: sanitizeText(input.usageInstructions, 1000),
+              storageInstructions: sanitizeText(input.storageInstructions, 500),
+              nearestExpiryDate: safeExpiry,
+              publicationStatus: effectivePubStatus,
+              ...compatFields,
+              featured: Boolean(input.featured),
+              popular: Boolean(input.popular),
+              storeId: SHARED_STORE_ID,
+              authorizedStaffUids: staffUids,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
         }
 
         const wasActive = previousProduct.publicationStatus !== 'archived';
         const isNowActive = effectivePubStatus !== 'archived';
         if (prevCatRef && prevCatData) {
           if (wasActive) {
+            const nextPrevCount = Math.max(0, (prevCatData.activeProductCount || 0) - 1);
             tx.update(prevCatRef, {
-              activeProductCount: Math.max(0, (prevCatData.activeProductCount || 0) - 1),
+              activeProductCount: nextPrevCount,
+              productCount: nextPrevCount,
               authorizedStaffUids: staffUids,
               updatedAt: serverTimestamp(),
             });
           }
           if (isNowActive) {
+            const nextNewCount = Math.max(0, (catData.activeProductCount || 0) + 1);
             tx.update(catRef, {
-              activeProductCount: Math.max(0, (catData.activeProductCount || 0) + 1),
+              activeProductCount: nextNewCount,
+              productCount: nextNewCount,
               authorizedStaffUids: staffUids,
               updatedAt: serverTimestamp(),
             });
           }
         } else if (wasActive !== isNowActive) {
+          const nextSameCount = Math.max(
+            0,
+            (catData.activeProductCount || 0) + (isNowActive ? 1 : -1)
+          );
           tx.update(catRef, {
-            activeProductCount: Math.max(0, (catData.activeProductCount || 0) + (isNowActive ? 1 : -1)),
+            activeProductCount: nextSameCount,
+            productCount: nextSameCount,
             authorizedStaffUids: staffUids,
             updatedAt: serverTimestamp(),
           });
@@ -998,8 +1145,8 @@ export async function saveProduct(
           const delta = safeStock - previousProduct.stockQuantity;
           pendingMovementPayload = {
             productId,
-            productName: sanitizeText(input.name, 160),
-            sku: cleanSku,
+            productName: cleanName,
+            sku: resolvedSku,
             batchNumber: 'CATALOG-EDIT',
             movementType: delta > 0 ? 'adjustment_add' : 'adjustment_deduct',
             quantityDelta: delta,
@@ -1030,7 +1177,7 @@ export async function saveProduct(
       isEdit ? 'PRODUCT_UPDATED' : 'PRODUCT_CREATED',
       productId,
       input.name,
-      `${isEdit ? 'Updated' : 'Created'} product "${input.name}" (SKU: ${cleanSku}, Price: BDT ${input.sellingPrice}, Status: ${effectivePubStatus}).`
+      `${isEdit ? 'Updated' : 'Created'} product "${input.name}" (SKU: ${resolvedSku}, Price: BDT ${input.sellingPrice}, Status: ${effectivePubStatus}).`
     );
     return productId;
   } catch (error) {
@@ -1047,6 +1194,7 @@ export async function bulkUpdateProductPublication(
   await ensureStaffProfileInFirestore(actor);
   const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
   const path = 'products/bulk';
+  const isPublished = targetStatus === 'published';
   try {
     const batch = writeBatch(db);
     for (const prod of productsToUpdate) {
@@ -1055,7 +1203,11 @@ export async function bulkUpdateProductPublication(
       }
       batch.update(doc(db, 'products', prod.id), {
         publicationStatus: targetStatus,
-        isActive: targetStatus === 'published',
+        isActive: isPublished,
+        status: isPublished ? 'active' : targetStatus,
+        published: isPublished,
+        visibility: isPublished ? 'public' : 'hidden',
+        storeId: SHARED_STORE_ID,
         authorizedStaffUids: staffUids,
         updatedAt: serverTimestamp(),
       });
@@ -1142,10 +1294,15 @@ export async function receiveIncomingBatch(
 
       tx.update(prodRef, {
         stockQuantity: newStock,
+        stock: newStock,
+        inStock: newStock > 0 && availabilityStatus !== 'expired_restricted',
         lowStockThreshold: liveProd.lowStockThreshold,
         availabilityStatus,
         nearestExpiryDate: nextNearestExpiry,
         publicationStatus: liveProd.publicationStatus,
+        isActive: liveProd.publicationStatus === 'published',
+        status: liveProd.publicationStatus === 'published' ? 'active' : liveProd.publicationStatus,
+        published: liveProd.publicationStatus === 'published',
         authorizedStaffUids: staffUids,
         updatedAt: serverTimestamp(),
       });
@@ -1218,14 +1375,20 @@ export async function adjustInventoryAtomically(
         availabilityStatus === 'expired_restricted' && prod.publicationStatus === 'published' && newStock > 0
           ? 'draft'
           : prod.publicationStatus;
+      const isPub = nextPubStatus === 'published';
 
       tx.update(prodRef, {
         stockQuantity: newStock,
+        stock: newStock,
+        inStock: newStock > 0 && availabilityStatus !== 'expired_restricted',
         lowStockThreshold: prod.lowStockThreshold,
         availabilityStatus,
         nearestExpiryDate: prod.nearestExpiryDate,
         publicationStatus: nextPubStatus,
-        isActive: nextPubStatus === 'published',
+        isActive: isPub,
+        status: isPub ? 'active' : nextPubStatus,
+        published: isPub,
+        visibility: isPub ? 'public' : 'hidden',
         authorizedStaffUids: staffUids,
         updatedAt: serverTimestamp(),
       });
@@ -1281,6 +1444,10 @@ export async function quarantineBatchStock(actor: ActorContext, batchRecord: Pro
       const deductQty = Math.min(pData.stockQuantity, bData.quantityRemaining);
       const newStock = Math.max(0, pData.stockQuantity - deductQty);
       const availabilityStatus = computeProductAvailability(newStock, pData.lowStockThreshold, '');
+      const nextPub =
+        newStock === 0 && pData.publicationStatus === 'published'
+          ? 'published'
+          : pData.publicationStatus;
 
       tx.update(batchRef, {
         quantityRemaining: 0,
@@ -1293,10 +1460,15 @@ export async function quarantineBatchStock(actor: ActorContext, batchRecord: Pro
 
       tx.update(prodRef, {
         stockQuantity: newStock,
+        stock: newStock,
+        inStock: newStock > 0 && availabilityStatus !== 'expired_restricted',
         lowStockThreshold: pData.lowStockThreshold,
         availabilityStatus,
         nearestExpiryDate: newStock === 0 ? '' : pData.nearestExpiryDate,
-        publicationStatus: newStock === 0 && pData.publicationStatus === 'published' ? 'published' : pData.publicationStatus,
+        publicationStatus: nextPub,
+        isActive: nextPub === 'published',
+        status: nextPub === 'published' ? 'active' : nextPub,
+        published: nextPub === 'published',
         authorizedStaffUids: staffUids,
         updatedAt: serverTimestamp(),
       });
@@ -2651,6 +2823,395 @@ export async function bootstrapReferenceStructure(
   }
 }
 
+export async function syncCatalogToCustomerPanel(
+  actor: ActorContext,
+  options: {
+    categories: Category[];
+    products: Product[];
+    siteSettings: SiteSettings | null;
+    deliveryZones: DeliveryZone[];
+    coupons: Coupon[];
+    publishDrafts?: boolean;
+    silent?: boolean;
+  }
+): Promise<{
+  syncedProducts: number;
+  syncedCategories: number;
+  publishedDrafts: number;
+}> {
+  await ensureStaffProfileInFirestore(actor);
+  const staffUids = boundedStaffUids(actor.activeStaffUids, actor.uid);
+
+  if (!options.silent) {
+    await bootstrapReferenceStructure(
+      actor,
+      options.categories,
+      Boolean(options.siteSettings),
+      options.deliveryZones,
+      options.coupons,
+      options.siteSettings
+    );
+  }
+
+  // Re-fetch latest categories & products directly from Firestore so nothing is missed
+  const [catSnap, prodSnap] = await Promise.all([
+    getDocs(collection(db, 'categories')),
+    getDocs(collection(db, 'products')),
+  ]);
+
+  const liveCategories: Category[] = catSnap.docs.map((d) => ({
+    id: d.id,
+    ...(d.data() as Omit<Category, 'id'>),
+  }));
+  const liveProducts: Product[] = prodSnap.docs.map((d) => ({
+    id: d.id,
+    ...(d.data() as Omit<Product, 'id'>),
+  }));
+
+  const categoryMap = new Map<string, Category>();
+  for (const cat of liveCategories) {
+    categoryMap.set(cat.id, cat);
+  }
+
+  let syncedProducts = 0;
+  let publishedDrafts = 0;
+  let syncedCategories = 0;
+
+  // Batch write in chunks of <= 400 operations
+  let batch = writeBatch(db);
+  let opsInBatch = 0;
+  const commitIfNeeded = async (force = false) => {
+    if (opsInBatch >= 400 || (force && opsInBatch > 0)) {
+      await batch.commit();
+      batch = writeBatch(db);
+      opsInBatch = 0;
+    }
+  };
+
+  const activeCountByCat = new Map<string, number>();
+
+  for (const prod of liveProducts) {
+    const safeStock = Math.max(0, Math.round(Number(prod.stockQuantity ?? prod.stock ?? 0) || 0));
+    const safeThreshold = Math.max(0, Math.round(Number(prod.lowStockThreshold ?? 10) || 10));
+    const safeExpiry = sanitizeText(prod.nearestExpiryDate || '', 32);
+    const availabilityStatus = computeProductAvailability(safeStock, safeThreshold, safeExpiry);
+
+    let nextPub: Product['publicationStatus'] = prod.publicationStatus || 'published';
+    if (
+      options.publishDrafts &&
+      nextPub === 'draft' &&
+      !(availabilityStatus === 'expired_restricted' && safeStock > 0)
+    ) {
+      nextPub = 'published';
+      publishedDrafts += 1;
+    } else if (
+      availabilityStatus === 'expired_restricted' &&
+      nextPub === 'published' &&
+      safeStock > 0
+    ) {
+      nextPub = 'draft';
+    }
+
+    if (nextPub !== 'archived' && prod.categoryId) {
+      activeCountByCat.set(prod.categoryId, (activeCountByCat.get(prod.categoryId) || 0) + 1);
+    }
+
+    const matchedCat = prod.categoryId ? categoryMap.get(prod.categoryId) : undefined;
+    const cleanName = sanitizeText(prod.name || 'Pharmacy Product', 160);
+    const cleanManufacturer = sanitizeText(prod.manufacturer || prod.brand || 'Verified Pharma', 120);
+    const cleanCatName = sanitizeText(
+      matchedCat?.name || prod.categoryName || prod.category || 'Medicine',
+      100
+    );
+    const cleanCatSlug = toSlug(matchedCat?.slug || prod.categorySlug || cleanCatName, 100);
+    const cleanCatNameBn = sanitizeText(matchedCat?.nameBn || prod.categoryNameBn || '', 120);
+    const rawImages = Array.isArray(prod.images)
+      ? prod.images
+      : prod.imageUrl
+      ? [prod.imageUrl]
+      : prod.image
+      ? [prod.image]
+      : [];
+    const cleanImages = rawImages.map((u) => sanitizeSafeUrl(u, 500)).filter(Boolean).slice(0, 6);
+    const cleanUnitSize = sanitizeText(prod.unitSize || prod.packSize || '1 Pack', 80);
+    const safeSelling = Math.max(0, Number(prod.sellingPrice ?? prod.price ?? 0) || 0);
+    const safePrev = Math.max(0, Number(prod.previousPrice ?? prod.originalPrice ?? 0) || 0);
+    const rxType: Product['prescriptionType'] =
+      prod.prescriptionType ||
+      (prod.requiresPrescription || prod.prescriptionRequired ? 'prescription_required' : 'otc');
+
+    const compat = buildProductCompatibilityFields({
+      cleanManufacturer,
+      cleanCategoryName: cleanCatName,
+      cleanCategorySlug: cleanCatSlug,
+      cleanCategoryNameBn: cleanCatNameBn,
+      cleanImages,
+      cleanUnitSize,
+      sellingPrice: safeSelling,
+      previousPrice: safePrev,
+      stockQuantity: safeStock,
+      availabilityStatus,
+      prescriptionType: rxType,
+      publicationStatus: nextPub,
+    });
+
+    batch.set(
+      doc(db, 'products', prod.id),
+      {
+        name: cleanName,
+        slug: toSlug(prod.slug || cleanName, 160),
+        genericName: sanitizeText(prod.genericName || '', 160),
+        manufacturer: cleanManufacturer,
+        categoryId: prod.categoryId || matchedCat?.id || 'cat_medicine',
+        categoryName: cleanCatName,
+        subcategory: sanitizeText(prod.subcategory || '', 100),
+        description: sanitizeText(prod.description || '', 2000),
+        images: cleanImages,
+        unitSize: cleanUnitSize,
+        sellingPrice: safeSelling,
+        previousPrice: safePrev,
+        stockQuantity: safeStock,
+        lowStockThreshold: safeThreshold,
+        sku:
+          sanitizeText(prod.sku || '', 64).replace(/[^a-zA-Z0-9_-]/g, '-') ||
+          `SKU-${prod.id.slice(-6).toUpperCase()}`,
+        availabilityStatus,
+        prescriptionType: rxType,
+        usageInstructions: sanitizeText(prod.usageInstructions || '', 1000),
+        storageInstructions: sanitizeText(prod.storageInstructions || '', 500),
+        nearestExpiryDate: safeExpiry,
+        publicationStatus: nextPub,
+        ...compat,
+        featured: Boolean(prod.featured),
+        popular: Boolean(prod.popular),
+        storeId: SHARED_STORE_ID,
+        authorizedStaffUids: staffUids,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+    opsInBatch += 1;
+    syncedProducts += 1;
+    await commitIfNeeded(false);
+  }
+
+  for (const cat of liveCategories) {
+    const cleanName = sanitizeText(cat.name || 'Category', 100);
+    const cleanNameBn = sanitizeText(cat.nameBn || '', 120);
+    const cleanSlug = toSlug(cat.slug || cleanName, 100);
+    const safeOrder = Math.max(0, Math.min(10000, Number(cat.displayOrder ?? cat.order ?? 0) || 0));
+    const nextPub: 'published' | 'hidden' =
+      options.publishDrafts && cat.publicationStatus === 'hidden'
+        ? 'published'
+        : cat.publicationStatus || 'published';
+    const actualCount = activeCountByCat.get(cat.id) ?? Math.max(0, Number(cat.activeProductCount) || 0);
+    const compat = buildCategoryCompatibilityFields({
+      cleanName,
+      cleanNameBn,
+      displayOrder: safeOrder,
+      publicationStatus: nextPub,
+      activeProductCount: actualCount,
+    });
+
+    batch.set(
+      doc(db, 'categories', cat.id),
+      {
+        name: cleanName,
+        nameBn: cleanNameBn,
+        slug: cleanSlug,
+        description: sanitizeText(cat.description || '', 500),
+        iconName: sanitizeText(cat.iconName || 'Pill', 40),
+        imageUrl: sanitizeSafeUrl(cat.imageUrl || '', 500),
+        parentCategoryId: sanitizeText(cat.parentCategoryId || '', 128),
+        displayOrder: safeOrder,
+        publicationStatus: nextPub,
+        activeProductCount: actualCount,
+        ...compat,
+        storeId: SHARED_STORE_ID,
+        authorizedStaffUids: staffUids,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+    opsInBatch += 1;
+    syncedCategories += 1;
+    await commitIfNeeded(false);
+  }
+
+  await commitIfNeeded(true);
+
+  if (!options.silent) {
+    await recordAdminAudit(
+      actor,
+      'products',
+      'CUSTOMER_PANEL_CATALOG_SYNCED',
+      'catalog',
+      `${syncedProducts} products, ${syncedCategories} categories`,
+      `Synced ${syncedProducts} product(s) and ${syncedCategories} category record(s) with full Customer Panel compatibility fields (published ${publishedDrafts} draft item(s)).`
+    );
+  }
+
+  return { syncedProducts, syncedCategories, publishedDrafts };
+}
+
+export interface CustomerPanelFeedProbeResult {
+  ok: boolean;
+  projectId: string;
+  databaseId: string;
+  publicReadAllowed: boolean;
+  unfilteredListAllowed: boolean;
+  publishedProductsCount: number;
+  totalReadableProductsCount: number;
+  publishedCategoriesCount: number;
+  sampleProductNames: string[];
+  errorMessage: string | null;
+}
+
+export async function probeCustomerPanelCatalogFeed(): Promise<CustomerPanelFeedProbeResult> {
+  const { projectId, databaseId } = getFirebaseProjectInfo();
+  const base = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
+    projectId
+  )}/databases/${encodeURIComponent(databaseId)}/documents`;
+
+  try {
+    // 1. Test unfiltered list read (exactly how many Customer Panels read /products)
+    const unfilteredRes = await fetch(`${base}/products?pageSize=100`, {
+      method: 'GET',
+      cache: 'no-store',
+    });
+
+    let unfilteredListAllowed = false;
+    let totalReadableProductsCount = 0;
+    let publishedProductsCount = 0;
+    let sampleProductNames: string[] = [];
+
+    if (unfilteredRes.ok) {
+      unfilteredListAllowed = true;
+      const data = (await unfilteredRes.json()) as {
+        documents?: Array<{
+          fields?: Record<
+            string,
+            { stringValue?: string; booleanValue?: boolean; integerValue?: string; doubleValue?: number }
+          >;
+        }>;
+      };
+      const docs = data.documents || [];
+      totalReadableProductsCount = docs.length;
+      const publishedDocs = docs.filter((d) => {
+        const f = d.fields || {};
+        const pubStatus = f.publicationStatus?.stringValue || '';
+        const isActive = f.isActive?.booleanValue;
+        const status = f.status?.stringValue || '';
+        return pubStatus === 'published' || isActive === true || status === 'active';
+      });
+      publishedProductsCount = publishedDocs.length;
+      sampleProductNames = publishedDocs
+        .map((d) => d.fields?.name?.stringValue || '')
+        .filter(Boolean)
+        .slice(0, 6);
+    }
+
+    // 2. Fallback test: filtered structuredQuery with publicationStatus == 'published'
+    const queryRes = await fetch(`${base}:runQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        structuredQuery: {
+          from: [{ collectionId: 'products' }],
+          where: {
+            fieldFilter: {
+              field: { fieldPath: 'publicationStatus' },
+              op: 'EQUAL',
+              value: { stringValue: 'published' },
+            },
+          },
+          limit: 100,
+        },
+      }),
+    });
+
+    if (!unfilteredListAllowed && !queryRes.ok) {
+      return {
+        ok: false,
+        projectId,
+        databaseId,
+        publicReadAllowed: false,
+        unfilteredListAllowed: false,
+        publishedProductsCount: 0,
+        totalReadableProductsCount: 0,
+        publishedCategoriesCount: 0,
+        sampleProductNames: [],
+        errorMessage: `Customer Panel read blocked (HTTP ${queryRes.status}) on Firebase project "${projectId}". Publish updated firestore.rules in Firebase Console -> Firestore Database -> Rules.`,
+      };
+    }
+
+    if (!unfilteredListAllowed && queryRes.ok) {
+      const rows = (await queryRes.json()) as Array<{
+        document?: { fields?: Record<string, { stringValue?: string }> };
+      }>;
+      const docs = rows.filter((r) => Boolean(r.document));
+      publishedProductsCount = docs.length;
+      totalReadableProductsCount = docs.length;
+      sampleProductNames = docs
+        .map((r) => r.document?.fields?.name?.stringValue || '')
+        .filter(Boolean)
+        .slice(0, 6);
+    }
+
+    // 3. Check published categories count
+    const catQueryRes = await fetch(`${base}:runQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        structuredQuery: {
+          from: [{ collectionId: 'categories' }],
+          where: {
+            fieldFilter: {
+              field: { fieldPath: 'publicationStatus' },
+              op: 'EQUAL',
+              value: { stringValue: 'published' },
+            },
+          },
+          limit: 50,
+        },
+      }),
+    });
+    let publishedCategoriesCount = 0;
+    if (catQueryRes.ok) {
+      const catRows = (await catQueryRes.json()) as Array<{ document?: unknown }>;
+      publishedCategoriesCount = catRows.filter((r) => Boolean(r.document)).length;
+    }
+
+    return {
+      ok: true,
+      projectId,
+      databaseId,
+      publicReadAllowed: true,
+      unfilteredListAllowed,
+      publishedProductsCount,
+      totalReadableProductsCount,
+      publishedCategoriesCount,
+      sampleProductNames,
+      errorMessage: unfilteredListAllowed
+        ? null
+        : `Filtered queries work, but unfiltered Customer Panel queries need the latest firestore.rules published in "${projectId}".`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      projectId,
+      databaseId,
+      publicReadAllowed: false,
+      unfilteredListAllowed: false,
+      publishedProductsCount: 0,
+      totalReadableProductsCount: 0,
+      publishedCategoriesCount: 0,
+      sampleProductNames: [],
+      errorMessage: err instanceof Error ? err.message : 'Network error probing Firestore REST endpoint.',
+    };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 8. QA / WORKFLOW VERIFICATION ORDER CREATOR (REAL ATOMIC CHECKOUT TEST)
 // ---------------------------------------------------------------------------
@@ -2718,9 +3279,11 @@ export async function placeVerificationOrder(
       const newStock = prevStock - qty;
       const nextAvail = computeProductAvailability(newStock, liveProd.lowStockThreshold, liveProd.nearestExpiryDate);
 
-      // Update product stock atomically (restricted to Tier 1–3 allowed keys)
+      // Update product stock atomically (including Customer Panel stock mirror fields)
       tx.update(prodRef, {
         stockQuantity: newStock,
+        stock: newStock,
+        inStock: newStock > 0 && nextAvail !== 'expired_restricted',
         availabilityStatus: nextAvail,
         updatedAt: serverTimestamp(),
       });

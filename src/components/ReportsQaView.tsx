@@ -1,20 +1,25 @@
 import React, { useMemo, useState } from 'react';
 import {
   AlertCircle,
+  Check,
   CheckCircle2,
   ClipboardCheck,
+  Copy,
   Database,
   Download,
   FileSpreadsheet,
   FlaskConical,
+  RefreshCw,
 } from 'lucide-react';
+import firestoreRulesRaw from '../../firestore.rules?raw';
 import { useAuth } from '../context/AuthContext';
 import { useStoreData } from '../context/StoreDataContext';
-import { getFirebaseProjectInfo } from '../lib/firebase';
+import { buildCustomerPanelEnvTemplate, getFirebaseProjectInfo } from '../lib/firebase';
 import { formatBdt, formatTimestamp } from '../lib/validation';
 import {
   generateSanitizedCsvExport,
   placeVerificationOrder,
+  syncCatalogToCustomerPanel,
 } from '../services/pharmacyService';
 import type { PaymentMethod } from '../types/pharmacy';
 
@@ -55,8 +60,46 @@ export function ReportsQaView() {
     '/assets/aistudio/867081142_122283788462156715_1316202229849569188_n_60369be3.jpg'
   );
   const [placingSimOrder, setPlacingSimOrder] = useState(false);
+  const [syncingCustomerCatalog, setSyncingCustomerCatalog] = useState(false);
+  const [copiedChecklistItem, setCopiedChecklistItem] = useState<string | null>(null);
 
   const projectInfo = getFirebaseProjectInfo();
+
+  const handleCopyChecklistText = async (key: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedChecklistItem(key);
+      setTimeout(() => {
+        setCopiedChecklistItem((prev) => (prev === key ? null : prev));
+      }, 2500);
+    } catch {
+      setErrorMsg('Clipboard copy failed.');
+    }
+  };
+
+  const handleChecklistCatalogSync = async () => {
+    if (!actor) return;
+    setSyncingCustomerCatalog(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const res = await syncCatalogToCustomerPanel(actor, {
+        categories,
+        products,
+        siteSettings,
+        deliveryZones,
+        coupons,
+        publishDrafts: true,
+      });
+      setSuccessMsg(
+        `Synced ${res.syncedProducts} product(s) and ${res.syncedCategories} category record(s) to Customer Panel (${res.publishedDrafts} draft item(s) published).`
+      );
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Catalog sync failed.');
+    } finally {
+      setSyncingCustomerCatalog(false);
+    }
+  };
 
   const rangeOrders = useMemo(() => {
     if (dateRangeDays === 0) return orders;
@@ -850,15 +893,57 @@ export function ReportsQaView() {
 
       {tab === 'checklist' && (
         <div className="bg-white border border-[#E6ECEF] rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-[#EEF2F6] flex items-center gap-2.5">
-            <Database className="w-4 h-4 text-[#0D7E74]" />
-            <div>
-              <h2 className="text-base font-semibold text-[#0F172A]">
-                Shared Firebase &amp; Customer Panel Connection Checklist
-              </h2>
-              <p className="text-xs text-[#64748B]">
-                Provide these exact coordinates to the separate Customer Storefront application (see <span className="font-mono text-[#0F172A]">SHARED_ARCHITECTURE.md</span>).
-              </p>
+          <div className="px-6 py-4 border-b border-[#EEF2F6] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <Database className="w-4 h-4 text-[#0D7E74] shrink-0" />
+              <div>
+                <h2 className="text-base font-semibold text-[#0F172A]">
+                  Shared Firebase &amp; Customer Panel Connection Checklist
+                </h2>
+                <p className="text-xs text-[#64748B]">
+                  Provide these exact coordinates to the separate Customer Storefront application (see <span className="font-mono text-[#0F172A]">SHARED_ARCHITECTURE.md</span>).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 no-print">
+              <button
+                type="button"
+                onClick={() => void handleCopyChecklistText('env', buildCustomerPanelEnvTemplate())}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#0F172A] bg-[#F4F7F8] hover:bg-[#E2EEF0] border border-[#E6ECEF] rounded-lg whitespace-nowrap shrink-0"
+              >
+                {copiedChecklistItem === 'env' ? (
+                  <Check className="w-3.5 h-3.5 text-[#15803D]" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5 text-[#0D7E74]" />
+                )}
+                <span>{copiedChecklistItem === 'env' ? 'Copied .env!' : 'Copy Customer Panel .env'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void handleCopyChecklistText('rules', firestoreRulesRaw)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#0F172A] bg-[#F4F7F8] hover:bg-[#E2EEF0] border border-[#E6ECEF] rounded-lg whitespace-nowrap shrink-0"
+              >
+                {copiedChecklistItem === 'rules' ? (
+                  <Check className="w-3.5 h-3.5 text-[#15803D]" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5 text-[#0D7E74]" />
+                )}
+                <span>{copiedChecklistItem === 'rules' ? 'Copied Rules!' : 'Copy firestore.rules'}</span>
+              </button>
+
+              {permissions?.canManageCatalog && (
+                <button
+                  type="button"
+                  disabled={syncingCustomerCatalog}
+                  onClick={() => void handleChecklistCatalogSync()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#0D7E74] hover:bg-[#086058] disabled:opacity-50 rounded-lg whitespace-nowrap shrink-0"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${syncingCustomerCatalog ? 'animate-spin' : ''}`} />
+                  <span>{syncingCustomerCatalog ? 'Syncing...' : 'Sync Catalog to Customer Panel'}</span>
+                </button>
+              )}
             </div>
           </div>
 

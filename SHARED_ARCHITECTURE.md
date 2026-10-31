@@ -8,8 +8,8 @@ This document defines the shared data contract, security model, administrative p
 
 Both the **Admin Panel** (this application) and the **Customer Storefront** connect to the exact same Firebase project and Firestore database:
 
-- **Firebase Project ID**: `gen-lang-client-0994184659`
-- **Firestore Database ID**: `ai-studio-finesteriderecur-89476c88-aa10-421c-8afe-687a542095e6`
+- **Firebase Project ID**: `admin-panel-5ecd8`
+- **Firestore Database ID**: `(default)`
 - **Shared Storefront Tenant Constant (`SHARED_STORE_ID`)**: `finesteride-recur-bd`
 
 > **Critical Security Distinction**: `VITE_FIREBASE_API_KEY` identifies the Firebase project to Google servers — it **never** grants administrative authority. Administrative access is enforced through Firebase Authentication, server-side token verification (`/api/auth/verify-session`), and hardened Firestore/Storage Security Rules (`firestore.rules` and `storage.rules`).
@@ -23,8 +23,8 @@ Every shared document includes `storeId: "finesteride-recur-bd"` and `authorized
 | Collection Path | Storefront Read Access | Storefront Write Access | Admin Panel Access | Purpose & Key Fields |
 | :--- | :--- | :--- | :--- | :--- |
 | `/staffMembers/{uid}` | Denied | Denied | Self `get`; Super/Store Admin manage | Staff RBAC (`role`, `status`, `licenseNumber`, `department`). |
-| `/categories/{categoryId}` | Public where `publicationStatus == 'published'` | Denied | `super_admin`, `store_admin`, `inventory_manager` | English & Bengali category hierarchy (`name`, `nameBn`, `slug`, `activeProductCount`). Deletion blocked when `activeProductCount > 0`. |
-| `/products/{productId}` | Public where `publicationStatus == 'published'` | Denied (stock reserved via atomic transaction) | Catalog/Inventory roles; pricing restricted to `super_admin` / `store_admin` | Sellable healthcare catalog (`name`, `genericName`, `manufacturer`, `sellingPrice`, `stockQuantity`, `availabilityStatus`, `prescriptionType`, `nearestExpiryDate`). **Wholesale cost is never stored here.** |
+| `/categories/{categoryId}` | Public `get` & `list` | Denied | `super_admin`, `store_admin`, `inventory_manager` | English & Bengali category hierarchy (`name`, `nameBn`, `title`, `titleBn`, `slug`, `displayOrder`, `order`, `sortOrder`, `publicationStatus`, `isActive`, `status`, `published`, `activeProductCount`, `productCount`). Deletion blocked when `activeProductCount > 0`. |
+| `/products/{productId}` | Public `get` & `list` | Denied (stock reserved via atomic transaction) | Catalog/Inventory roles; pricing restricted to `super_admin` / `store_admin` | Sellable healthcare catalog with full Customer Panel mirror fields (`name`, `genericName`, `manufacturer`, `brand`, `company`, `categoryId`, `categoryName`, `category`, `categorySlug`, `categoryNameBn`, `sellingPrice`, `price`, `mrp`, `regularPrice`, `originalPrice`, `discountPrice`, `discountPercent`, `images`, `image`, `imageUrl`, `thumbnail`, `unitSize`, `packSize`, `stockQuantity`, `stock`, `inStock`, `availabilityStatus`, `prescriptionType`, `requiresPrescription`, `prescriptionRequired`, `publicationStatus`, `isActive`, `status`, `published`). **Wholesale cost is never stored here.** |
 | `/productBatches/{batchId}` | Denied (Confidential) | Denied | `super_admin`, `store_admin`, `inventory_manager`, `analyst` (read) | Confidential supplier lots, `unitCostPrice`, `batchNumber`, `expiryDate`, and quarantine status. |
 | `/inventoryMovements/{movementId}` | Denied | Customer atomic `order_reserved` only with matching `getAfter` product stock delta | Authorized staff create/read; **immutable** (`update, delete: false`) | Tamper-evident ledger of every stock receipt, adjustment, order reservation, cancellation restock, and expiry quarantine. |
 | `/users/{userId}` | Owner `get` only | Owner `create`/`update` own profile (`accountStatus == 'active'`) | Staff read; `super_admin`, `store_admin`, `customer_support` status updates | Public-safe account metadata (`displayName`, `accountStatus`, `orderCount`, `totalSpentBdt`). |
@@ -118,9 +118,9 @@ Every shared document includes `storeId: "finesteride-recur-bd"` and `authorized
 
 Use this checklist when building or connecting the separate **Customer Storefront** (`MASTER PROMPT 02`):
 
-- [ ] **Environment Config**: Set `VITE_FIREBASE_PROJECT_ID="gen-lang-client-0994184659"` and initialize Firestore with database ID `"ai-studio-finesteriderecur-89476c88-aa10-421c-8afe-687a542095e6"`.
+- [ ] **Environment Config**: Set `VITE_FIREBASE_PROJECT_ID="admin-panel-5ecd8"`, `VITE_FIREBASE_DATABASE_ID="(default)"`, and `VITE_SHARED_STORE_ID="finesteride-recur-bd"` (use the one-click **Copy Customer Panel `.env`** button in Admin Panel → **Products → Customer Panel Sync** or **Reports & QA → Shared Firebase Checklist**).
 - [ ] **Storefront Branding & Policies**: Read `doc(db, 'siteSettings', 'storefront_config')` for live hero banners, Bangla/English taglines, navigation links, enabled payment channels (`enabledPaymentMethods`), and DGDA policies.
-- [ ] **Catalog & Category Queries**: Query `/categories` and `/products` filtering by `where('publicationStatus', '==', 'published')`. Hide or disable Add-to-Cart when `availabilityStatus == 'out_of_stock'` or `'expired_restricted'`.
+- [ ] **Catalog & Category Queries**: Query `/categories` and `/products` directly via Firestore (`collection(db, 'products')`, `where('publicationStatus', '==', 'published')`, `where('isActive', '==', true)`, `where('status', '==', 'active')`, `where('categoryId', ...)`, or `where('categorySlug', ...)`) — or via `GET /api/public/catalog`. Hide or disable Add-to-Cart when `availabilityStatus == 'out_of_stock'` or `'expired_restricted'` (`inStock == false`).
 - [ ] **Customer Profile & Isolated PII**: Store public display profile in `/users/{uid}` (`accountStatus: 'active'`) and contact/address PII in `/users/{uid}/privateProfile/pii`.
 - [ ] **Prescription Uploads**: Upload prescription scans to Firebase Storage path `/prescriptions/{uid}/{orderId}/{fileName}` (JPEG/PNG/WebP/PDF, max 8 MB) and create `/prescriptionReviews/{reviewId}` with `reviewStatus: 'pending_review'`.
 - [ ] **Atomic Checkout**: Place orders using `runTransaction` that decrements `/products/{id}.stockQuantity`, writes an `/inventoryMovements` entry (`movementType: 'order_reserved'`), writes `/orders/{orderId}` (`storeId: 'finesteride-recur-bd'`, `paymentStatus: 'unpaid'` for COD or `'pending_verification'` for bKash/Nagad), and snapshots `/orders/{orderId}/items/{itemId}` + `/orders/{orderId}/statusHistory/{histId}`.

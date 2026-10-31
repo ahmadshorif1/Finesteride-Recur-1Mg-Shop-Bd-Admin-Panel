@@ -141,13 +141,31 @@ export function getFirebaseVapidKey(): string {
 export function getFirebaseProjectInfo() {
   return {
     projectId: resolvedFirebaseConfig.projectId,
+    apiKey: resolvedFirebaseConfig.apiKey,
     authDomain: resolvedFirebaseConfig.authDomain,
     storageBucket: resolvedFirebaseConfig.storageBucket,
     messagingSenderId: resolvedFirebaseConfig.messagingSenderId,
+    appId: resolvedFirebaseConfig.appId,
+    measurementId: resolvedFirebaseConfig.measurementId || '',
     vapidKey: FIREBASE_WEB_PUSH_VAPID_KEY,
     databaseId: FIRESTORE_DATABASE_ID,
     storeId: SHARED_STORE_ID,
   };
+}
+
+export function buildCustomerPanelEnvTemplate(): string {
+  const info = getFirebaseProjectInfo();
+  return [
+    `VITE_FIREBASE_API_KEY="${info.apiKey}"`,
+    `VITE_FIREBASE_AUTH_DOMAIN="${info.authDomain}"`,
+    `VITE_FIREBASE_PROJECT_ID="${info.projectId}"`,
+    `VITE_FIREBASE_STORAGE_BUCKET="${info.storageBucket}"`,
+    `VITE_FIREBASE_MESSAGING_SENDER_ID="${info.messagingSenderId}"`,
+    `VITE_FIREBASE_APP_ID="${info.appId}"`,
+    `VITE_FIREBASE_DATABASE_ID="${info.databaseId}"`,
+    `VITE_SHARED_STORE_ID="${info.storeId}"`,
+    ...(info.vapidKey ? [`VITE_FIREBASE_VAPID_KEY="${info.vapidKey}"`] : []),
+  ].join('\n');
 }
 
 let cachedDbProvisionCheck: Promise<{ provisioned: boolean; message: string | null }> | null = null;

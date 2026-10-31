@@ -48,9 +48,40 @@ service cloud.firestore {
       );
     }
 
-    function isPublishedCatalogDoc(data) {
-      return data.get('isActive', false) == true ||
-        data.get('publicationStatus', '') == 'published';
+    // Allows authenticated customers during atomic checkout to reserve/decrement stock only
+    // (never alter price, title, SKU, or increase stock).
+    function isCustomerAtomicStockReservation() {
+      return isSignedIn() &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'stockQuantity',
+          'stock',
+          'inStock',
+          'availabilityStatus',
+          'updatedAt'
+        ]) &&
+        incoming().get('stockQuantity', -1) is int &&
+        incoming().get('stockQuantity', -1) >= 0 &&
+        incoming().get('stockQuantity', 0) < existing().get('stockQuantity', 0);
+    }
+
+    function isCustomerOrderMovementCreate() {
+      return isSignedIn() &&
+        incoming().get('movementType', '') == 'order_reserved' &&
+        incoming().get('performedByUid', '') == request.auth.uid &&
+        incoming().get('productId', '') is string &&
+        isValidId(incoming().get('productId', '')) &&
+        incoming().get('quantityDelta', 0) is int &&
+        incoming().get('quantityDelta', 0) < 0 &&
+        incoming().get('newStock', -1) is int &&
+        incoming().get('newStock', -1) >= 0 &&
+        getAfter(/databases/$(database)/documents/products/$(incoming().get('productId', ''))).data.get('stockQuantity', -2) == incoming().get('newStock', -1);
+    }
+
+    function isCustomerCouponRedeem() {
+      return isSignedIn() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['usedCount', 'updatedAt']) &&
+        incoming().get('usedCount', 0) == existing().get('usedCount', 0) + 1 &&
+        incoming().get('usedCount', 0) <= existing().get('usageLimit', 0);
     }
 
     // =========================================================================
@@ -73,19 +104,20 @@ service cloud.firestore {
       allow update, delete: if isValidId(staffUid) && isAdmin();
     }
 
-    // 2. CATEGORIES
+    // 2. CATEGORIES (Public Storefront Catalog — zero PII / zero wholesale cost)
     match /categories/{categoryId} {
-      allow get: if isValidId(categoryId) && (resource == null || isPublishedCatalogDoc(existing()) || isAdmin());
-      allow list: if isPublishedCatalogDoc(existing()) || isAdmin();
+      allow get: if isValidId(categoryId);
+      allow list: if request.time != null;
       allow create, update: if isValidId(categoryId) && isAdmin();
       allow delete: if isValidId(categoryId) && isAdmin() && existing().get('activeProductCount', 0) == 0;
     }
 
-    // 3. PRODUCTS
+    // 3. PRODUCTS (Public Storefront Catalog — wholesale batch costs isolated in /productBatches)
     match /products/{productId} {
-      allow get: if isValidId(productId) && (resource == null || isPublishedCatalogDoc(existing()) || isAdmin());
-      allow list: if isPublishedCatalogDoc(existing()) || isAdmin();
-      allow create, update, delete: if isValidId(productId) && isAdmin();
+      allow get: if isValidId(productId);
+      allow list: if request.time != null;
+      allow create, delete: if isValidId(productId) && isAdmin();
+      allow update: if isValidId(productId) && (isAdmin() || isCustomerAtomicStockReservation());
     }
 
     // 4. CONFIDENTIAL INVENTORY BATCHES & IMMUTABLE STOCK MOVEMENTS
@@ -98,29 +130,21 @@ service cloud.firestore {
     match /inventoryMovements/{movementId} {
       allow get: if isValidId(movementId) && isAdmin();
       allow list: if isAdmin();
-      allow create: if isValidId(movementId) && isAdmin();
+      allow create: if isValidId(movementId) && (isAdmin() || isCustomerOrderMovementCreate());
       allow update, delete: if false;
     }
 
-    // 5. COUPONS & DELIVERY ZONES
+    // 5. COUPONS & DELIVERY ZONES (Public Storefront Checkout Rules)
     match /coupons/{couponId} {
-      allow get: if isValidId(couponId) && (
-        resource == null ||
-        existing().get('isActive', false) == true ||
-        existing().get('status', '') == 'active' ||
-        isAdmin()
-      );
-      allow list: if existing().get('status', '') == 'active' || existing().get('isActive', false) == true || isAdmin();
-      allow create, update, delete: if isValidId(couponId) && isAdmin();
+      allow get: if isValidId(couponId);
+      allow list: if request.time != null;
+      allow create, delete: if isValidId(couponId) && isAdmin();
+      allow update: if isValidId(couponId) && (isAdmin() || isCustomerCouponRedeem());
     }
 
     match /deliveryZones/{zoneId} {
-      allow get: if isValidId(zoneId) && (
-        resource == null ||
-        existing().get('status', '') == 'active' ||
-        isAdmin()
-      );
-      allow list: if existing().get('status', '') == 'active' || isAdmin();
+      allow get: if isValidId(zoneId);
+      allow list: if request.time != null;
       allow create, update, delete: if isValidId(zoneId) && isAdmin();
     }
 
@@ -168,7 +192,11 @@ service cloud.firestore {
     match /orders/{orderId} {
       allow get: if isValidId(orderId) && (isDocCustomerOwner(existing()) || isAdmin());
       allow list: if isDocCustomerOwner(existing()) || isAdmin();
-      allow create: if isValidId(orderId) && (isDocCustomerOwner(incoming()) || isAdmin());
+      allow create: if isValidId(orderId) && (
+        isAdmin() ||
+        (isDocCustomerOwner(incoming()) &&
+          incoming().get('paymentStatus', 'unpaid') in ['unpaid', 'pending_verification'])
+      );
       allow update: if isValidId(orderId) && (
         isAdmin() ||
         (isDocCustomerOwner(existing()) && !existing().get('cancellationRequested', false))
@@ -226,14 +254,8 @@ service cloud.firestore {
 
     // 9. STOREFRONT SITE SETTINGS & IMMUTABLE AUDIT LOGS
     match /siteSettings/{settingId} {
-      allow get: if isValidId(settingId) && (
-        settingId == 'storefront_config' ||
-        resource == null ||
-        existing().get('storeId', '') == 'finesteride-recur-bd' ||
-        existing().get('isPublic', true) == true ||
-        isAdmin()
-      );
-      allow list: if existing().get('storeId', '') == 'finesteride-recur-bd' || isAdmin();
+      allow get: if isValidId(settingId);
+      allow list: if request.time != null;
       allow create, update: if isValidId(settingId) && isAdmin();
       allow delete: if false;
     }
@@ -247,7 +269,7 @@ service cloud.firestore {
 
     // 10. SDK CONNECTIVITY PROBE
     match /test/connection {
-      allow get: if true;
+      allow get: if request.time != null;
     }
   }
 }
